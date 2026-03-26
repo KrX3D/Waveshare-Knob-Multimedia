@@ -11,14 +11,6 @@ external_components:
       ref: new_test
     refresh: always
 
-globals:
-  # Tracks which LVGL page is currently active so rotary knows what to do
-  - id: active_page_id
-    type: int
-    restore_value: false
-    initial_value: '0'
-    # 0 = time_page, 1 = media_player_page, 2 = settings_page
-
 sensor:
   - platform: rotary_encoder_custom
     name: "Rotary Encoder"
