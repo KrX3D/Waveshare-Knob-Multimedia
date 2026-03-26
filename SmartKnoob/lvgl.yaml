@@ -150,7 +150,7 @@ interval:
           // info page temperature
           if (id(outdoor_temperature).has_state()) {
             char tbuf2[12];
-            snprintf(tbuf2, sizeof(tbuf2), "%.1fC", id(outdoor_temperature).state);
+            snprintf(tbuf2, sizeof(tbuf2), "%.1f", id(outdoor_temperature).state);
             lv_label_set_text(id(info_temp_label), tbuf2);
           }
 
@@ -239,10 +239,10 @@ lvgl:
             min_value: 0
             max_value: 100
 
-        # Battery % text inside arc — roboto_small fits "100%"
+        # Battery % text inside arc — roboto fits and is readable
         - label:
             id: batt_text
-            text_font: roboto_small
+            text_font: roboto
             text_color: 0x000000
             align: CENTER
             y: -120
@@ -483,7 +483,7 @@ lvgl:
 
         - label:
             align: TOP_MID
-            y: 30
+            y: 22
             text_font: roboto_28
             text_color: 0x000000
             text: "Info"
@@ -502,7 +502,7 @@ lvgl:
             y: 10
             text_font: roboto_36
             text_color: 0x000000
-            text: "–C"
+            text: "–"
 
         - label:
             id: info_wifi_label

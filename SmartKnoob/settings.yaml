@@ -12,6 +12,15 @@ lvgl:
       on_load:
         then:
           - lambda: 'id(active_page_id) = 2;'
+          - lambda: |-
+              // Sync timeout slider to actual current value on page open
+              int cur = (int)id(display_timeout).state;
+              lv_slider_set_value(id(timeout_slider), cur, LV_ANIM_OFF);
+              char buf[24];
+              snprintf(buf, sizeof(buf), "Timeout: %ds", cur);
+              lv_label_set_text(id(lbl_timeout_val), buf);
+              // Sync haptic slider label
+              lv_label_set_text(id(lbl_haptic_val), "Strength: 127");
       widgets:
 
         # Full dark circle background
@@ -40,10 +49,10 @@ lvgl:
               # Close button — moved inward so it's inside the circle
               - button:
                   align: TOP_MID
-                  x: 110       # ~center + 110px = near right but inside 180px radius
-                  y: 14
-                  width: 42
-                  height: 42
+                  x: 100       # inside 180px radius circle
+                  y: 20
+                  width: 40
+                  height: 40
                   bg_color: 0x3a0000
                   bg_opa: COVER
                   border_color: 0xFF4444
@@ -551,17 +560,15 @@ interval:
       # NTP server IP — read from ha-config.yaml ntp servers substitution
       # We can't resolve the hostname at runtime easily, so show the configured value
       - lambda: |-
-          // ESP-IDF network info (no Arduino WiFi object in esp-idf framework)
-          esp_netif_dns_info_t dns_info;
-          esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-          char buf[48];
-          if (netif && esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK) {
-            uint32_t d = dns_info.ip.u_addr.ip4.addr;
-            snprintf(buf, sizeof(buf), "NTP DNS: %d.%d.%d.%d",
-                     (int)(d & 0xFF), (int)((d >> 8) & 0xFF),
-                     (int)((d >> 16) & 0xFF), (int)((d >> 24) & 0xFF));
+          // Show configured NTP server (first server from ha-config.yaml)
+          // SNTP servers can be read from the ESP-IDF SNTP API
+          const char* s0 = esp_sntp_getservername(0);
+          const char* s1 = esp_sntp_getservername(1);
+          char buf[64];
+          if (s0 && strlen(s0) > 0) {
+            snprintf(buf, sizeof(buf), "NTP: %s", s0);
           } else {
-            snprintf(buf, sizeof(buf), "NTP DNS: unavailable");
+            snprintf(buf, sizeof(buf), "NTP: not configured");
           }
           lv_label_set_text(id(lbl_ntp_ip), buf);
 
@@ -614,4 +621,9 @@ interval:
           lv_label_set_text(id(lbl_sd_fs), "FS: FAT32");
           // SD frequency — show from the esphome sd_mmc sensor if available
           // The sd_card.yaml frequency sensor has no ID; show kHz from platform default
-          lv_label_set_text(id(lbl_sd_freq), "Freq: 40000 kHz");
+          // sd_freq_sensor is in kHz from the sd_mmc platform
+          if (id(sd_freq_sensor).has_state()) {
+            char fbuf[24];
+            snprintf(fbuf, sizeof(fbuf), "Freq: %.0f kHz", id(sd_freq_sensor).state);
+            lv_label_set_text(id(lbl_sd_freq), fbuf);
+          }

@@ -24,6 +24,8 @@ sensor:
         - globals.set:
             id: display_counter
             value: !lambda 'return (int)x;'
+        # Always wake the display on any rotation
+        - script.execute: screentime
         - lambda: |-
             int curr = (int)x;
             static int prev = 0;
@@ -37,18 +39,16 @@ sensor:
             if (delta == 0) { prev = curr; return; }
             prev = curr;
 
-            // ── Case 1: Display is off — just wake it, ignore the rotation ──
-            if (id(back_light).current_values.get_brightness() < 0.01f) {
-              return;
-            }
+            // Display off — screentime above will wake it; skip interaction
+            if (id(back_light).current_values.get_brightness() < 0.01f) return;
 
-            // ── Case 2: Settings page — scroll content ──────────────────────
+            // Settings page — scroll content
             if (id(active_page_id) == 2) {
               lv_obj_scroll_by(id(settings_scroll), 0, delta * -20, LV_ANIM_ON);
               return;
             }
 
-            // ── Case 3: Media player page — volume control ───────────────────
+            // Media player page — volume control
             if (id(active_page_id) == 1) {
               float vol = std::max(0.0f, std::min(1.0f,
                   id(current_volume) + (delta * 5 / 100.0f)));
@@ -57,24 +57,16 @@ sensor:
               lv_obj_invalidate((lv_obj_t*)id(volume_control_widget));
               ESP_LOGI("rotary", "vol %.2f", vol);
             }
-
-            // ── Case 0: Time page — no action (could add brightness etc.) ───
+            // Time/info page — rotation just wakes display (already done above)
         - if:
             condition:
-              lambda: 'return id(back_light).current_values.get_brightness() < 0.01f;'
+              lambda: 'return id(active_page_id) == 1 && id(back_light).current_values.get_brightness() > 0.01f;'
             then:
-              # Display off → wake display only
-              - script.execute: screentime
-            else:
-              - if:
-                  condition:
-                    lambda: 'return id(active_page_id) == 1;'
-                  then:
-                    - drv2605.play_effect:
-                        id: haptic_driver
-                        effect: 7    # soft bump
-                    - homeassistant.action:
-                        action: media_player.volume_set
-                        data:
-                          entity_id: $mediaplayer
-                          volume_level: !lambda 'return id(current_volume);'
+              - drv2605.play_effect:
+                  id: haptic_driver
+                  effect: 7
+              - homeassistant.action:
+                  action: media_player.volume_set
+                  data:
+                    entity_id: $mediaplayer
+                    volume_level: !lambda 'return id(current_volume);'
