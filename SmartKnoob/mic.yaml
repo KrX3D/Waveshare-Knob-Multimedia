@@ -1,0 +1,36 @@
+﻿# mic.yaml — remove the i2s_audio block, it's now in audio.yaml
+
+i2s_audio:
+  # Declare mic bus FIRST so I2S NUM_0 is reserved for PDM RX before
+  # the speaker claims NUM_1. Order matters for resource allocation.
+  - id: i2s_mic_bus
+    i2s_bclk_pin: GPIO45
+    i2s_lrclk_pin: GPIO38
+    
+microphone:
+  - platform: i2s_audio
+    id: board_mic
+    i2s_audio_id: i2s_mic_bus   # references the one declared in audio.yaml
+    adc_type: external
+    i2s_din_pin: GPIO46
+    pdm: true
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    channel: left
+    correct_dc_offset: true
+    on_data:
+      - lambda: |-
+          if (x.empty()) return;
+          int64_t sum = 0;
+          const int16_t *s = reinterpret_cast<const int16_t *>(x.data());
+          size_t n = x.size() / 2;
+          for (size_t i = 0; i < n; i++) sum += (int64_t)s[i] * s[i];
+          float rms = sqrtf((float)(sum / (float)n));
+          id(mic_level).publish_state(rms);
+
+sensor:
+  - platform: template
+    name: "Mic Level"
+    id: mic_level
+    unit_of_measurement: ""
+    update_interval: never

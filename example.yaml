@@ -1,0 +1,173 @@
+packages:
+  configuration: !include SmartKnob/configuration.yaml
+  esp_settings: !include SmartKnob/esp-config.yaml
+  ha_settings: !include SmartKnob/ha-config.yaml
+  display: !include SmartKnob/waveshare.yaml
+  lvgl: !include SmartKnob/lvgl.yaml
+  battery: !include SmartKnob/adc_battery.yaml
+  mediaplayer: !include SmartKnob/mediaplayer.yaml
+  drv2605: !include SmartKnob/drv2605.yaml
+  encoder: !include SmartKnob/rotary_encoder.yaml
+  display_settings: !include SmartKnob/display.yaml
+  sd_card: !include SmartKnob/sd_card.yaml
+  
+  
+  #custom component
+  #audio: !include SmartKnob/audio_sd.yaml
+  #mic: !include SmartKnob/mic_sd.yaml
+
+  #esphome component
+  #audio: !include SmartKnob/audio.yaml
+  #mic: !include SmartKnob/mic.yaml
+
+color: !include WaveShare_ESP32_S3/widgets/colors.yaml
+
+# audio.yaml
+#
+# waveshare_audio is now a speaker PLATFORM (speaker: - platform: waveshare_audio)
+# waveshare_mic is now a microphone PLATFORM (microphone: - platform: waveshare_mic)
+# This is the correct ESPHome pattern — the same way i2s_audio works.
+
+esphome:
+  platformio_options:
+    build_flags:
+      - "-D CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024"
+
+external_components:
+  - source: github://KrX3D/waveshare-knob-audio-mic@main
+    components: [waveshare_audio, waveshare_mic]
+    refresh: 0s
+
+speaker:
+  # waveshare_audio speaker platform — owns I2S_NUM_1, GPIO39/40/41.
+  # play_buzz() and play_file() can still be called on this ID from lambdas.
+  - platform: waveshare_audio
+    id: ws_audio
+    bclk_pin: GPIO39
+    ws_pin: GPIO40
+    dout_pin: GPIO41
+    enable_pin: GPIO0
+    sample_rate: 48000
+    gain: 0.25
+
+  # Mixer — combines announcement (TTS) and media (Music Assistant) streams
+  # into the single waveshare_audio output.
+  - platform: mixer
+    id: audio_mixer
+    output_speaker: ws_audio
+    num_channels: 2
+    source_speakers:
+      - id: announcement_spk
+        timeout: never
+      - id: media_spk
+        timeout: never
+
+        
+select:
+  - platform: template
+    name: "Audio Buzz Pattern"
+    id: buzz_pattern
+    optimistic: true
+    options:
+      - "Sine"
+      - "Double Beep"
+      - "Alarm"
+    initial_option: "Sine"
+
+number:
+  - platform: template
+    name: "Audio Gain"
+    id: audio_gain
+    optimistic: true
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.05
+    initial_value: 0.25
+    set_action:
+      - lambda: |-
+          id(ws_audio).set_gain(x);
+
+
+globals:
+  - id: audio_selected_file
+    type: std::string
+    restore_value: false
+    initial_value: '"/sdcard/recording.wav"'
+
+microphone:
+  # waveshare_mic microphone platform — I2S_NUM_0 PDM, GPIO45/46.
+  # start_recording() / stop_recording() still work for SD WAV capture.
+  - platform: waveshare_mic
+    id: ws_mic
+    pdm_clock_pin: GPIO45
+    pdm_data_pin: GPIO46
+    sample_rate: 16000
+    path: /sdcard/recording.wav
+    buffer_bytes: 4096
+    
+button:
+  - platform: template
+    name: "Mic Start Recording"
+    on_press:
+      - lambda: |-
+          id(ws_mic).start_recording(id(audio_selected_file));
+
+  - platform: template
+    name: "Mic Stop Recording"
+    on_press:
+      - lambda: |-
+          id(ws_mic).stop_recording();
+
+  - platform: template
+    name: "Audio Play File"
+    on_press:
+      - lambda: |-
+          if (id(ws_mic).is_recording())
+            id(ws_mic).stop_recording();
+          id(ws_audio).play_file(id(audio_selected_file));
+
+  - platform: template
+    name: "Audio Stop"
+    on_press:
+      - lambda: |-
+          id(ws_audio).stop_playback();
+
+  - platform: template
+    name: "Audio Play Buzz"
+    on_press:
+      - lambda: |-
+          using namespace esphome::waveshare_audio;
+          auto option = id(buzz_pattern).current_option();
+          if (option == "Double Beep") {
+            id(ws_audio).play_buzz(BUZZ_DOUBLE_BEEP);
+          } else if (option == "Alarm") {
+            id(ws_audio).play_buzz(BUZZ_ALARM);
+          } else {
+            id(ws_audio).play_buzz(BUZZ_SINE);
+          }
+
+media_player:
+  - platform: speaker
+    name: "SmartKnob Speaker"
+    id: knob_media_player
+    task_stack_in_psram: true
+    buffer_size: 16384        
+    codec_support_enabled: all
+    announcement_pipeline:
+      speaker: announcement_spk
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 2
+    media_pipeline:
+      speaker: media_spk
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 2
+
+# ── Voice assistant (uncomment to enable) ────────────────────────────────────
+# voice_assistant:
+#   microphone: ws_mic
+#   speaker: announcement_spk
+#   noise_suppression_level: 2
+#   auto_gain: 31dBFS
+#   volume_multiplier: 4.0

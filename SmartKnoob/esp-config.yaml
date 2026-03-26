@@ -1,0 +1,52 @@
+substitutions:
+# Device setting  
+  board: esp32-s3-devkitc-1
+  name: "esp-smart-knob"
+  friendly_name: "SmartKnob"
+  comment: ESP Smart Knob
+  type: esp-idf  
+  
+esphome:
+  friendly_name: "${friendly_name}"
+  name: "${name}"
+  comment: "${comment}"
+  platformio_options:
+    #build_flags: "-DBOARD_HAS_PSRAM"
+    board_build.flash_mode: dio
+    board_build.f_flash: 80000000L
+    board_build.f_cpu: 240000000L
+    
+esp32:
+  board: ${board}
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+      #By default long file name are not enabled - Enable for SDMMC      
+      CONFIG_FATFS_LFN_STACK: "y"
+      # If you prefer heap LFN instead:
+      # CONFIG_FATFS_LFN_HEAP: "y"
+
+psram:
+  mode: octal
+  #speed: 80MHz
+  
+#uart:
+  #id: audio_uart
+  #tx_pin: GPIO40
+  #rx_pin: GPIO39
+  #baud_rate: 115200
+  #rx_buffer_size: 1024
+  #debug:
+    #direction: BOTH
+    #dummy_receiver: false
+    #after:
+      #delimiter: "\n"
+    #sequence:
+      #- lambda: |-
+          #UARTDebug::log_string(direction, bytes);

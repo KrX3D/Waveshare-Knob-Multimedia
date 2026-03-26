@@ -1,0 +1,431 @@
+substitutions:
+  play_icon:         "\U0000e90a"
+  pause_icon:        "\U0000e90b"
+  back_step_icon:    "\U0000e90c"
+  forward_step_icon: "\U0000e90d"
+  repeat_off_icon:   "\U0000e913"
+  
+http_request:
+  verify_ssl: false
+  timeout: 10s  # Increase timeout for image downloads
+  watchdog_timeout: 15s  # Add watchdog timeout
+  
+font:
+    - file: "WaveShare_ESP32_S3/fonts/Nunito-SemiBold.ttf"
+      id: nunito_16
+      size: 16
+      bpp: 4
+      glyphsets:
+        - GF_Latin_Core
+        - GF_Cyrillic_Core
+        - GF_Latin_Vietnamese
+      glyphs: "²"
+      extras:
+        - file: "WaveShare_ESP32_S3/fonts/Jua-Regular.ttf"
+          glyphs: [
+            "\U0000C774",
+            "\U0000B8E8",
+            "\U0000B9C8",        
+          ]
+          
+    - file: "WaveShare_ESP32_S3/fonts/Nunito-SemiBold.ttf"
+      id: nunito_20
+      size: 20
+      bpp: 4
+      glyphsets:
+        - GF_Latin_Core
+        - GF_Cyrillic_Core
+        - GF_Latin_Vietnamese
+
+    - file: "WaveShare_ESP32_S3/fonts/icons_v2.ttf"
+      id: icons_28
+      size: 28
+      bpp: 4
+      glyphs: [
+        "\U0000e902", # exit
+        "\U0000e927", # room_plan
+      ]
+            
+    - file: "WaveShare_ESP32_S3/fonts/icons_v2.ttf"
+      id: icons_38
+      size: 38
+      bpp: 4
+      glyphs: [
+        "\U0000e909", # power
+        "\U0000e90c", # back step
+        "\U0000e90d", # forward step
+        "\U0000e912", # repeat_all
+        "\U0000e913", # repeat_off
+        "\U0000e914", # repeat_one
+        "\U0000e90a", # play
+        "\U0000e90b", # pause
+        "\U0000e91c", # stop
+        "\U0000e923", # locate
+        "\U0000e924", # docked
+      ]
+      
+    - file: "WaveShare_ESP32_S3/fonts/icons_v2.ttf"
+      id: icons_48
+      size: 48
+      bpp: 4
+      glyphs: [
+        "\U0000e90a", # play
+        "\U0000e90b", # pause
+        "\U0000e91f", # arrow_up
+        "\U0000e920", # arrow_down
+        "\U0000e91c", # stop
+        "\U0000e923", # locate
+        "\U0000e924", # docked
+      ]
+  
+image:
+  - file: "SmartKnob/bg.png"
+    id: bg_image_file
+    type: RGB565
+    resize: 360x360
+    transparency: alpha_channel
+  
+  - file: "SmartKnob/mediaplayer/thumbnail.png"
+    id: album_placeholder
+    type: RGB565
+    resize: 120x120
+    transparency: alpha_channel
+
+# Static local file approach
+online_image:
+  - url: "${homeassistant_thumbnail_url}"
+    type: RGB565
+    format: PNG #PNG JPEG
+    id: media_image_jpeg
+    resize: 120x120
+    transparency: alpha_channel
+    update_interval: never
+    on_download_finished:
+      - lambda: |-
+          ESP_LOGI("cover", "Cover image downloaded successfully");
+      - lvgl.image.update:
+          id: album_cover_image
+          src: media_image_jpeg
+    on_error:
+      - lambda: |-
+          ESP_LOGW("cover", "Failed to download cover image (timeout or connection error), using placeholder");
+      - lvgl.image.update:
+          id: album_cover_image
+          src: album_placeholder
+
+globals:    
+  - id: current_volume
+    type: float
+    initial_value: '0.5'
+    
+  - id: api_ready
+    type: bool
+    initial_value: 'false'
+    
+  - id: current_media_title
+    type: std::string
+    initial_value: ""
+    
+  - id: duration_slider_user_interaction
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+    
+  - id: slider_position
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+    
+  - id: pending_cover_url
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+api:
+  on_client_connected:
+    - delay: 2s
+    - lambda: |-
+        ESP_LOGI("media", "Home Assistant connected, initializing...");
+        id(api_ready) = true;
+    - homeassistant.service:
+        service: homeassistant.update_entity
+        data:
+          entity_id: $mediaplayer
+    - delay: 1s
+    - script.execute: refresh_media_data
+
+text_sensor:
+  - platform: homeassistant
+    id: media_player_state
+    entity_id: "${mediaplayer}"
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x == "paused";'
+          then:
+            - lvgl.label.update: 
+                id: play_pause_icon
+                x: 0
+                text: "${play_icon}"
+          else:
+            - lvgl.label.update: 
+                id: play_pause_icon
+                x: 0
+                text: "${pause_icon}"
+                
+  - platform: homeassistant
+    id: media_player_cover
+    entity_id: "${mediaplayer}"
+    attribute: entity_picture
+    on_value:
+      - lambda: |-
+          ESP_LOGI("cover", "New cover URL received: %s", x.c_str());
+          id(pending_cover_url) = x;
+      - script.execute: update_cover_script
+
+  - platform: homeassistant
+    id: media_player_title_sensor
+    entity_id: "${mediaplayer}"
+    attribute: media_title
+    on_value:
+      - lvgl.label.update:
+          id: media_player_title_label
+          text: !lambda return x;
+      - delay: 2s  # Wait 2 seconds before checking title change
+      - lambda: |-
+          // Check if title changed - this means new media is playing
+          if (x != id(current_media_title)) {
+            ESP_LOGI("cover", "Media title changed: %s", x.c_str());
+            id(current_media_title) = x;
+            // Trigger cover update when title changes (delayed to prevent blocking)
+            if (!id(pending_cover_url).empty()) {
+              id(update_cover_script)->execute();
+            }
+          }
+
+  - platform: homeassistant
+    id: media_player_artist_sensor
+    entity_id: "${mediaplayer}"
+    attribute: media_artist
+    on_value:
+      - delay: 1s
+      - lvgl.label.update:
+          id: media_player_artist_label
+          text: !lambda return x;
+
+binary_sensor:
+  - platform: template
+    id: is_playing
+    lambda: 'return id(media_player_state).state == "playing";'
+    filters:
+      - delayed_off: 500ms
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(api_ready);'
+            then:
+              - lambda: 'ESP_LOGI("media", "Switching to media player page");'
+              - lvgl.page.show: media_player_page
+    on_release:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(api_ready);'
+            then:
+              - delay: 1s
+              - lambda: 'ESP_LOGI("media", "Switching to time page");'
+              #- lvgl.page.show: time_page
+
+sensor:
+  - platform: homeassistant
+    id: media_player_volume
+    entity_id: $mediaplayer
+    attribute: volume_level
+    filters:
+      - throttle: 200ms
+      - heartbeat: 5s
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(api_ready) && !isnan(x) && x >= 0.0 && x <= 1.0;'
+          then:
+            - lambda: |-
+                ESP_LOGI("media", "Volume update: %.2f (was %.2f)", x, id(current_volume));
+                id(current_volume) = x;
+            - lvgl.arc.update:
+                id: volume_control_widget
+                value: !lambda 'return (int)(x * 100);'
+          else:
+            - lambda: 'ESP_LOGW("media", "Invalid volume value: %.2f", x);'
+    
+  - platform: homeassistant
+    id: media_player_volume_level
+    entity_id: "${mediaplayer}"
+    attribute: volume_level
+    on_value:
+      - lvgl.arc.update:
+          id: volume_control_widget
+          value: !lambda 'return int(x * 100);'
+          
+  - platform: homeassistant
+    id: media_player_media_duration
+    entity_id: "${mediaplayer}"
+    attribute: media_duration
+    on_value:
+      then:
+        - lambda: |-
+            int dur = (int)roundf(x);
+            lv_slider_set_range(id(media_player_duration_pos_slider), 0, dur);
+
+  - platform: homeassistant
+    id: media_position
+    entity_id: "${mediaplayer}"
+    attribute: media_position
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: time_label
+            text: !lambda |-
+              float posf = x;
+              float durf = id(media_player_media_duration).state;
+              if (isnan(posf)) posf = 0.0f;
+              if (isnan(durf)) durf = 0.0f;
+              int pos = (int)roundf(posf);
+              int dur = (int)roundf(durf);
+              int pm = pos / 60;
+              int ps = pos % 60;
+              int dm = dur / 60;
+              int ds = dur % 60;
+              char buf[32];
+              snprintf(buf, sizeof(buf), "%d:%02d/%d:%02d", pm, ps, dm, ds);
+              return std::string(buf);
+
+script:
+  - id: handle_duration_slider_release_script
+    mode: restart
+    then:
+      - homeassistant.service:
+          service: media_player.media_seek
+          data:
+            entity_id: "${mediaplayer}"
+            seek_position: !lambda 'return std::to_string(int(id(slider_position)));'
+      - delay: 2s
+      - lambda: |-
+          id(duration_slider_user_interaction) = false;
+          
+  # Cover update script
+  - id: update_cover_script
+    mode: restart
+    then:
+      - lambda: |-
+          std::string full_url = "${homeassistant_thumbnail_url}";
+          
+          ESP_LOGI("cover", "Triggering cover image download from: %s", full_url.c_str());
+          
+          // Set the URL
+          id(media_image_jpeg)->set_url(full_url);
+      # Add delay before triggering download to prevent blocking
+      - delay: 100ms
+      - lambda: |-
+          // Trigger download
+          id(media_image_jpeg)->update();
+            
+  - id: refresh_media_data
+    then:
+      - lambda: |-
+          ESP_LOGI("media", "Refreshing media player data...");
+      - homeassistant.service:
+          service: homeassistant.update_entity
+          data:
+            entity_id: $mediaplayer
+      - if:
+          condition:
+            lambda: 'return id(media_player_volume).has_state();'
+          then:
+            - lambda: |-
+                float vol = id(media_player_volume).state;
+                ESP_LOGI("media", "Updating volume display: %.2f", vol);
+                id(current_volume) = vol;
+            - lvgl.arc.update:
+                id: volume_control_widget
+                value: !lambda 'return id(current_volume) * 100;'
+
+  - id: volume_up
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - lambda: |-
+                float new_vol = id(current_volume) + 0.05;
+                if (new_vol > 1.0) new_vol = 1.0;
+                id(current_volume) = new_vol;
+                ESP_LOGI("volume", "Volume up to: %.2f", new_vol);
+            - homeassistant.action:
+                action: media_player.volume_set
+                data:
+                  entity_id: $mediaplayer
+                  volume_level: !lambda 'return id(current_volume);'
+            
+  - id: volume_down
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - lambda: |-
+                float new_vol = id(current_volume) - 0.05;
+                if (new_vol < 0.0) new_vol = 0.0;
+                id(current_volume) = new_vol;
+                ESP_LOGI("volume", "Volume down to: %.2f", new_vol);
+            - homeassistant.action:
+                action: media_player.volume_set
+                data:
+                  entity_id: $mediaplayer
+                  volume_level: !lambda 'return id(current_volume);'
+                    
+  - id: media_play_pause
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - homeassistant.action:
+                action: media_player.media_play_pause
+                data:
+                  entity_id: $mediaplayer
+            
+  - id: media_next
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - homeassistant.action:
+                action: media_player.media_next_track
+                data:
+                  entity_id: $mediaplayer
+            
+  - id: media_previous
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - homeassistant.action:
+                action: media_player.media_previous_track
+                data:
+                  entity_id: $mediaplayer
+
+interval:            
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(api_ready);'
+          then:
+            - homeassistant.service:
+                service: homeassistant.update_entity
+                data:
+                  entity_id: $mediaplayer

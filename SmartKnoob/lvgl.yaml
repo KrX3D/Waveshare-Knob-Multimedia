@@ -1,0 +1,391 @@
+substitutions:
+  font: gfonts://Roboto
+  mdi: fonts/materialdesignicons-webfont.ttf 
+  # http://materialdesignicons.com/cdn/7.4.47/ 
+  
+# Font definition
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 500
+    id: roboto_18_bold
+    size: 18
+  - file: "gfonts://Roboto"
+    id: roboto_small
+    size: 16
+  - file: "gfonts://Roboto"
+    id: roboto
+    size: 20
+  - file: "gfonts://Roboto"
+    id: roboto_28
+    size: 28
+  - file: "gfonts://Roboto"
+    id: roboto_36
+    size: 36
+  - file: "gfonts://Roboto"
+    id: roboto_48
+    size: 48
+    
+globals:
+  - id: batt_percent
+    type: int
+    initial_value: '0'
+    
+  - id: display_counter
+    type: int
+    restore_value: false
+    initial_value: '0'
+    
+  - id: time_str
+    type: std::string
+    initial_value: ""
+            
+text_sensor:
+  - platform: homeassistant
+    entity_id: sensor.battery_level
+    id: batt_lvl
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            if (!x.empty()) {
+              float v = std::round(std::stof(x));
+              id(batt_percent) = (int)v;
+              }
+
+        - lvgl.arc.update:
+            id: batt_arc
+            value: !lambda 'return id(batt_percent);'
+        - lvgl.label.update:
+            id: batt_text
+            text: !lambda 'return std::to_string(id(batt_percent)) + "%";'
+            
+sensor:        
+  - platform: homeassistant
+    id: outdoor_temperature
+    attribute: temperature
+    entity_id: $weather
+    on_value: 
+      then:
+        - lvgl.label.update:
+            id: temp_widget
+            text: !lambda 'char b[16]; snprintf(b, sizeof(b), "%.1f°", x); return std::string(b);'
+
+script:
+  - id: update_time_labels
+    then:
+      - lambda: |-
+          auto t = id(time_comp).now();
+          static const char* days[]   = {"So.","Mo.","Di.","Mi.","Do.","Fr.","Sa."};
+          static const char* months[] = {"Jan","Feb","Mär","Apr","Mai","Jun",
+                                         "Jul","Aug","Sep","Okt","Nov","Dez"};
+          char buf[64];
+          snprintf(buf, sizeof(buf), "%s %02u %s\n%02u:%02u:%02u",
+                   days[t.day_of_week],
+                   t.day_of_month,
+                   months[t.month - 1],
+                   t.hour, t.minute, t.second);
+          id(time_str) = std::string(buf);
+      - lvgl.label.update:
+          id: date_time_widget
+          text: !lambda 'return id(time_str);'
+
+lvgl:
+  id: my_lvgl
+  displays:
+    - main_display
+  touchscreens:
+    - my_touchscreen
+  
+  color_depth: 16
+
+  # Add theme configuration
+  theme:
+    button:
+      bg_color: 0x2d2d2d
+      bg_grad_color: 0x1a1a1a
+      bg_grad_dir: VER
+      bg_opa: COVER
+      border_color: 0x666666
+      border_width: 2
+      border_opa: COVER
+      text_color: 0xFFFFFF
+  pages:
+            
+    - id: media_player_page
+      on_click:
+        then:
+          - homeassistant.action:
+              action: media_player.media_play_pause
+              data:
+                entity_id: $mediaplayer
+      on_swipe_left:
+        then:
+          - homeassistant.action:
+              action: media_player.media_next_track
+              data:
+                entity_id: "${mediaplayer}"
+      on_swipe_right:
+        then:
+          - homeassistant.action:
+              action: media_player.media_previous_track
+              data: { entity_id: $mediaplayer }
+      widgets:
+        # Add background as first widget in each page
+        - image:
+            id: bg_image_mediaplayer
+            src: bg_image_file
+            align: CENTER
+            width: 100%
+            height: 100%
+            
+        # Album cover container
+        - obj:
+            id: media_cover
+            width: 120
+            height: 120
+            align: CENTER
+            scrollable: false
+            scrollbar_mode: "OFF"
+            y: -80
+            #bg_opa: 0%
+            bg_opa: TRANSP   # fully transparent background
+            border_width: 0  # This hides the border
+            radius: 15
+            shadow_opa: TRANSP
+            clip_corner: true  # Clips corners nicely
+            #bg_image_src: media_image_jpeg
+            widgets:
+              - image:
+                  id: album_cover_image
+                  src: album_placeholder    # References the placeholder image
+                  align: CENTER
+
+        # Track information with better spacing
+        - label:
+            id: media_player_artist_label
+            text_font: nunito_16
+            #text_color: 0xCCCCCC
+            text_color: 0x000000
+            align: CENTER
+            width: 80%
+            text_align: CENTER
+            long_mode: SCROLL_CIRCULAR
+            y: 0
+            text: "No Artist"
+
+        - label:
+            id: media_player_title_label
+            text_font: nunito_20
+            #text_color: 0xFFFFFF
+            text_color: 0x000000
+            align: CENTER
+            width: 80%
+            text_align: CENTER
+            long_mode: SCROLL_CIRCULAR
+            y: 30
+            text: "Title"
+
+        # Add progress slider
+        - slider:
+            id: media_player_duration_pos_slider
+            width: 50%
+            min_value: 0
+            max_value: 100
+            height: 8
+            align: CENTER
+            y: 60
+            on_press:
+              - lambda: |-
+                    id(duration_slider_user_interaction) = true;
+            on_release:
+              then:
+                - lambda: |-
+                    id(slider_position) = x;
+                - script.execute: handle_duration_slider_release_script
+
+        # Time display for current position / duration
+        - label:
+            id: time_label
+            text_font: roboto_18_bold
+            text_color: 0x000000
+            align: CENTER        # object alignment inside parent
+            y: 85
+            width: 50%           # give label plenty of width so long times don't clip
+            text_align: CENTER   # center the text inside the label
+            long_mode: DOT      # if still too long, show dots at the end (prevents overflow)
+            text: "0:00/0:00"    # initial value (will be updated by sensor on_value)
+
+        # Enhanced volume control
+        - arc:
+            id: volume_control_widget
+            adv_hittest: true
+            align: CENTER
+            y: 0
+            width: 320
+            height: 320
+            adjustable: true
+            arc_width: 8
+            arc_color: 0x00BFFF
+            start_angle: 135
+            end_angle: 45
+            on_value:
+              then:
+                - lambda: |-
+                    float vol = x / 100.0;
+                    id(current_volume) = vol;
+                    ESP_LOGI("volume", "Volume control changed to: %.2f", vol);
+                - homeassistant.action:
+                    action: media_player.volume_set
+                    data:
+                      entity_id: $mediaplayer
+                      volume_level: !lambda 'return float(x) / 100.0;'
+
+        # Add media control buttons
+        - obj:
+            id: control_buttons_container
+            width: 200
+            height: 50
+            align: BOTTOM_MID
+            y: -30
+            bg_opa: TRANSP          # transparent background for container
+            border_width: 0        # remove any container border
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            widgets:
+              # Previous button
+              - button:
+                  id: btn_previous
+                  width: 50
+                  height: 50
+                  align: LEFT_MID
+                  checkable: false
+                  bg_opa: TRANSP            # make button background transparent
+                  border_width: 0
+                  radius: 8
+                  shadow_opa: TRANSP
+                  on_click:
+                    then:
+                      - homeassistant.action:
+                          action: media_player.media_previous_track
+                          data:
+                            entity_id: "${mediaplayer}"
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text_font: icons_38
+                        text: "${back_step_icon}"
+                        text_color: 0xFF6F61
+              
+              # Play/Pause button
+              - button:
+                  id: media_player_state_label
+                  width: 60
+                  height: 60
+                  align: CENTER
+                  checkable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 10
+                  shadow_opa: TRANSP
+                  on_click:
+                    then:
+                      - homeassistant.action:
+                          action: media_player.media_play_pause
+                          data:
+                            entity_id: $mediaplayer
+                  widgets:
+                    - label:
+                        id: play_pause_icon
+                        text_font: icons_48
+                        text: "${pause_icon}"
+                        align: CENTER
+                        text_color: 0xFF6F61
+
+              # Next button
+              - button:
+                  id: btn_next
+                  width: 50
+                  height: 50
+                  align: RIGHT_MID
+                  checkable: false
+                  bg_opa: TRANSP
+                  border_width: 0
+                  radius: 8
+                  shadow_opa: TRANSP
+                  on_click:
+                    then:
+                        - homeassistant.action:
+                            action: media_player.media_next_track
+                            data:
+                              entity_id: "${mediaplayer}"
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text_font: icons_38
+                        text: "${forward_step_icon}"
+                        text_color: 0xFF6F61
+
+    - id: time_page
+      on_click:
+        then:
+          - if:
+              condition:
+                lambda: 'return id(api_ready);'
+              then:
+                - homeassistant.action:
+                    action: media_player.media_play_pause
+                    data:
+                      entity_id: $mediaplayer
+      widgets:
+        # Add background as first widget in each page
+        - image:
+            id: bg_image_time
+            src: bg_image_file
+            align: CENTER
+            width: 100%
+            height: 100%
+            
+        - label:
+            id: date_time_widget
+            text_font: roboto_36
+            #text_color: 0xFFFFFF
+            text_color: 0x000000
+            align: CENTER
+            y: -40
+            long_mode: WRAP
+            text_align: CENTER
+            text: !lambda 'return id(time_str);'
+
+        - label:
+            id: temp_widget
+            text_font: roboto_48
+            #text_color: 0x00BFFF
+            text_color: 0x000000
+            align: CENTER
+            y: 40
+            text: "–"
+
+        # Enhanced battery arc with better positioning
+        - arc:
+            id: batt_arc
+            align: CENTER
+            y: -120
+            width: 80
+            height: 80
+            start_angle: 135
+            end_angle: 45
+            arc_width: 8
+            arc_color: 0x00FF00  # Keep static green color
+            value: 0
+                        
+        # Battery percentage text
+        - label:
+            id: batt_text
+            text_font: roboto
+            #text_color: 0xFFFFFF
+            text_color: 0x000000
+            align: CENTER
+            y: -120
+            text: "--%"

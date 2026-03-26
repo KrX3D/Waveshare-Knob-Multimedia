@@ -1,0 +1,25 @@
+substitutions:
+  latitude: "XX.XX"    
+  longitude: "X.XX"   
+  weather: weather.ENTITY
+  
+  screensaver: 30 sec # Timeout for how long the screen should stay on after the last interaction
+  
+  mediaplayer: media_player.ENTITY
+
+  homeassistant_token: "XXXXXXXXXXX"
+  homeassistant_url: "192.168.10.10:8123"
+  integration: "hass_agent"
+  homeassistant_thumbnail_url: "https://$homeassistant_url/api/$integration/$mediaplayer/thumbnail.png"
+
+  api_key: "XXXXXXXXXX+bfA="
+  ota_password: "XXXXXXXXXXXXX"
+  
+  #log_level: VERY_VERBOSE
+  log_level: DEBUG
+  #log_level: INFO
+
+  wifi_static_ip: 192.168.10.11
+  wifi_subnet: 255.255.255.0
+  
+  timezone: 'Europe/Berlin'

@@ -1,0 +1,71 @@
+external_components:
+  - source:
+      type: git
+      url: https://github.com/KrX3D/WaveShare-Knob-Esp32S3
+      ref: new_test  # or a specific commit SHA
+    refresh: always
+    
+sensor:
+  - platform: rotary_encoder_custom
+    name: "Rotary Encoder"
+    id: rotary_counter
+    pin_a: 8
+    pin_b: 7
+    min_value: 0
+    max_value: 100
+    #publish_initial_value: true
+    restore_mode: RESTORE_DEFAULT_ZERO
+    on_value:
+      then:
+        - globals.set:
+            id: display_counter
+            value: !lambda 'return (int)x;'
+        - lambda: |-
+            int curr = (int)x;
+            static int prev = 0;
+            static bool initialized = false;
+
+            if (!initialized) {
+              prev = curr;
+              initialized = true;
+              return;
+            }
+
+            int delta = curr - prev;
+
+            // handle counter wrap (adjust if your counter width is different)
+            if (delta > 10000) delta -= 65536;
+            else if (delta < -10000) delta += 65536;
+
+            if (delta == 0) {
+              prev = curr;
+              return;
+            }
+
+            const int STEP_PCT = 5; // 5% per encoder step
+            int change_pct = delta * STEP_PCT;
+
+            float vol = id(current_volume) + ((float)change_pct / 100.0f);
+
+            // clamp
+            if (vol > 1.0f) vol = 1.0f;
+            if (vol < 0.0f) vol = 0.0f;
+
+            // save new volume and update UI using LVGL C API
+            id(current_volume) = vol;
+            lv_arc_set_value((lv_obj_t*)id(volume_control_widget), (int)round(vol * 100.0f));
+            lv_obj_invalidate((lv_obj_t*)id(volume_control_widget));
+
+            ESP_LOGI("rotary", "encoder delta=%d -> change=%d%% -> volume=%.2f",
+                     delta, change_pct, vol);
+
+            prev = curr;
+        - drv2605.play_effect:
+            id: haptic_driver
+            effect: 7  # Soft Bump
+        - homeassistant.action:
+            action: media_player.volume_set
+            data:
+              entity_id: $mediaplayer
+              volume_level: !lambda 'return id(current_volume);'
+#             volume_level: !lambda 'return x / 100.0;'

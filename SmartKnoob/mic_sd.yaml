@@ -1,0 +1,46 @@
+﻿# mic_sd.yaml
+# Waveshare Smart Knob — PDM microphone with SD card WAV recording
+#
+# Use this file INSTEAD of mic.yaml if you need to record to SD.
+# Uses the custom waveshare_mic external component.
+#
+# Include in your main YAML with:
+#   packages:
+#     mic: !include mic_sd.yaml
+#
+# Do NOT include both mic.yaml and mic_sd.yaml — they both claim I2S NUM_0.
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/KrX3D/waveshare-knob-audio-mic.git
+      ref: main
+    components: [waveshare_mic]
+    refresh: 0s
+
+globals:
+  - id: audio_selected_file
+    type: std::string
+    restore_value: no
+    initial_value: '"/sdcard/recording.wav"'
+	
+waveshare_mic:
+  id: ws_mic
+  pdm_clock_pin: 45
+  pdm_data_pin: 46
+  sample_rate: 16000
+  path: /sdcard/recording.wav
+  buffer_bytes: 4096
+
+button:
+  - platform: template
+    name: "Mic Start Recording"
+    on_press:
+      - lambda: |-
+          id(ws_mic).start_recording(id(audio_selected_file));
+
+  - platform: template
+    name: "Mic Stop Recording"
+    on_press:
+      - lambda: |-
+          id(ws_mic).stop_recording();

@@ -1,0 +1,46 @@
+﻿# audio.yaml
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: "1024"  # only use PSRAM for allocs > 1KB
+
+i2s_audio:
+  - id: i2s_dac_bus
+    i2s_bclk_pin: GPIO39
+    i2s_lrclk_pin: GPIO40
+
+speaker:
+  - platform: i2s_audio
+    id: dac_speaker
+    i2s_audio_id: i2s_dac_bus
+    dac_type: external
+    i2s_dout_pin: GPIO41
+    channel: stereo
+    sample_rate: 48000
+
+  - platform: mixer
+    id: audio_mixer
+    output_speaker: dac_speaker
+    num_channels: 2
+    source_speakers:
+      - id: announcement_spk
+        timeout: never
+      - id: media_spk
+        timeout: never
+
+media_player:
+  - platform: speaker
+    name: "SmartKnob Speaker"
+    task_stack_in_psram: true   # run audio tasks in PSRAM, frees internal RAM
+    buffer_size: 300000         # reduce from default 1MB — each pipeline gets this
+    codec_support_enabled: all  # compile all codecs so MA can use FLAC
+    announcement_pipeline:
+      speaker: announcement_spk
+      format: FLAC              # FLAC uses less CPU and network than WAV
+      sample_rate: 48000
+      num_channels: 2
+    media_pipeline:
+      speaker: media_spk
+      format: FLAC              # FLAC for MA streaming — most reliable
+      sample_rate: 48000
+      num_channels: 2

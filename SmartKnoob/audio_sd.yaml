@@ -1,0 +1,85 @@
+# audio.yaml
+# Waveshare Smart Knob — audio output (PCM5100A via I2S)
+#
+# Include in your main YAML with:
+#   packages:
+#     audio: !include audio.yaml
+#
+# Requires:
+#   - waveshare_audio external component (declared in main YAML or here)
+#   - SD card mounted at /sdcard before playback buttons are used
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/KrX3D/waveshare-knob-audio-mic.git
+      ref: main
+    components: [waveshare_audio]
+    refresh: 0s
+
+waveshare_audio:
+  id: ws_audio
+  bclk_pin: 39
+  ws_pin: 40
+  dout_pin: 41
+  enable_pin: 0       # CH445P I2S routing switch — must stay HIGH to connect S3->DAC
+  sample_rate: 16000  # 160 000 000 / 16 000 = 10 000 exactly; perfect PLL divider
+  default_file: /sdcard/recording.wav
+  gain: 0.25
+
+globals:
+  - id: audio_selected_file
+    type: std::string
+    restore_value: no
+    initial_value: '"/sdcard/recording.wav"'
+
+select:
+  - platform: template
+    name: "Audio Buzz Pattern"
+    id: buzz_pattern
+    optimistic: true
+    options:
+      - "Sine"
+      - "Double Beep"
+      - "Alarm"
+    initial_option: "Sine"
+
+number:
+  - platform: template
+    name: "Audio Gain"
+    id: audio_gain
+    optimistic: true
+    min_value: 0.0
+    max_value: 1.0
+    step: 0.05
+    initial_value: 0.25
+    set_action:
+      - lambda: |-
+          id(ws_audio).set_gain(x);
+
+button:
+  - platform: template
+    name: "Audio Play File"
+    on_press:
+      - lambda: |-
+          id(ws_audio).play_file(id(audio_selected_file));
+
+  - platform: template
+    name: "Audio Stop"
+    on_press:
+      - lambda: |-
+          id(ws_audio).stop();
+
+  - platform: template
+    name: "Audio Play Buzz"
+    on_press:
+      - lambda: |-
+          using namespace esphome::waveshare_audio;
+          auto option = id(buzz_pattern).current_option();
+          if (option == "Double Beep") {
+            id(ws_audio).play_buzz(BUZZ_DOUBLE_BEEP);
+          } else if (option == "Alarm") {
+            id(ws_audio).play_buzz(BUZZ_ALARM);
+          } else {
+            id(ws_audio).play_buzz(BUZZ_SINE);
+          }
