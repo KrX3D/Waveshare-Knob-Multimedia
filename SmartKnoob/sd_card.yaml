@@ -68,6 +68,7 @@ sensor:
           
   - platform: sd_mmc_card
     type: frequency
+    id: sd_freq_sensor
     name: "SD Frequency"
     unit_of_measurement: "kHz"
     accuracy_decimals: 0

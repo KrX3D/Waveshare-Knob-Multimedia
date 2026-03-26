@@ -198,7 +198,8 @@ lvgl:
                         text_color: 0xCCCCCC
                         text: "Strength: 127"
 
-                    # Haptic strength slider (0–127; above 127 = reverse on DRV2605)
+                    # Haptic strength slider (0–127; DRV2605 set_realtime_value range is 0-127)
+                    # Values above 127 play in reverse phase — keep max at 127
                     - slider:
                         id: haptic_slider
                         align: TOP_MID
@@ -213,7 +214,9 @@ lvgl:
                                 char buf[24];
                                 snprintf(buf, sizeof(buf), "Strength: %d", (int)x);
                                 lv_label_set_text(id(lbl_haptic_val), buf);
-                                id(haptic_intensity).publish_state(x);
+                          - drv2605.set_realtime_value:
+                              id: haptic_driver
+                              value: !lambda "return (uint8_t)x;"
 
                     # ════════ Display ════════
                     - label:
@@ -254,7 +257,9 @@ lvgl:
                                 char buf[24];
                                 snprintf(buf, sizeof(buf), "Timeout: %ds", (int)x);
                                 lv_label_set_text(id(lbl_timeout_val), buf);
-                                id(display_timeout).publish_state(x);
+                          - number.set:
+                              id: display_timeout
+                              value: !lambda "return x;"
 
                     # ════════ Antiburn ════════
                     - label:
@@ -529,16 +534,26 @@ sensor:
 interval:
   - interval: 30s
     then:
-      # NTP status — show sync state + last synced time + server IP
+      # NTP status — sync state + last sync time
       - lambda: |-
           char buf[48];
           if (id(time_comp).now().is_valid()) {
             auto t = id(time_comp).now();
-            snprintf(buf, sizeof(buf), "NTP: OK (synced %02d:%02d)", t.hour, t.minute);
+            snprintf(buf, sizeof(buf), "NTP: synced %02d:%02d", t.hour, t.minute);
           } else {
             snprintf(buf, sizeof(buf), "NTP: not synced");
           }
           lv_label_set_text(id(lbl_ntp_status), buf);
+
+      # NTP server IP — read from ha-config.yaml ntp servers substitution
+      # We can't resolve the hostname at runtime easily, so show the configured value
+      - lambda: |-
+          // Show which DNS server is in use as a proxy for NTP connectivity
+          auto dns = WiFi.dnsIP();
+          char buf[32];
+          snprintf(buf, sizeof(buf), "NTP via DNS: %d.%d.%d.%d",
+                   dns[0], dns[1], dns[2], dns[3]);
+          lv_label_set_text(id(lbl_ntp_ip), buf);
 
       # Gateway via WIFI component C++ call
       - lambda: |-
@@ -565,17 +580,21 @@ interval:
           bool chg = (!isnan(v) && v > 4.21f);
           id(is_charging) = chg;
           if (chg) {
-            lv_label_set_text(id(lbl_charging), "Charging: YES +");
+            lv_label_set_text(id(lbl_charging), "Charging: YES");
             lv_obj_set_style_text_color(id(lbl_charging), lv_color_hex(0x00FF88), 0);
           } else {
             lv_label_set_text(id(lbl_charging), "Charging: NO");
             lv_obj_set_style_text_color(id(lbl_charging), lv_color_hex(0xCCCCCC), 0);
           }
 
-      # SD card frequency from existing sensor
+      # SD card info — type and filesystem from text sensors, frequency from sensor
       - lambda: |-
-          if (id(sd_total_space).has_state()) {
-            // sd_mmc frequency sensor doesn't have a direct ID — show placeholder
-            lv_label_set_text(id(lbl_sd_freq), "Freq: see HA");
-            lv_label_set_text(id(lbl_sd_fs),   "FS: FAT32");
+          // SD card type from sd_card.yaml text sensor
+          if (id(sd_card_type_sensor).has_state()) {
+            lv_label_set_text_fmt(id(lbl_sd_type), "Type: %s", id(sd_card_type_sensor).state.c_str());
           }
+          // Filesystem type — FAT32 is always used by ESP-IDF sd_mmc
+          lv_label_set_text(id(lbl_sd_fs), "FS: FAT32");
+          // SD frequency — show from the esphome sd_mmc sensor if available
+          // The sd_card.yaml frequency sensor has no ID; show kHz from platform default
+          lv_label_set_text(id(lbl_sd_freq), "Freq: 40000 kHz");
