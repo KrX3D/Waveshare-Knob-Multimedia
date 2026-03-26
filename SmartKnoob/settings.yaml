@@ -551,19 +551,33 @@ interval:
       # NTP server IP — read from ha-config.yaml ntp servers substitution
       # We can't resolve the hostname at runtime easily, so show the configured value
       - lambda: |-
-          // Show which DNS server is in use as a proxy for NTP connectivity
-          auto dns = WiFi.dnsIP();
-          char buf[32];
-          snprintf(buf, sizeof(buf), "NTP via DNS: %d.%d.%d.%d",
-                   dns[0], dns[1], dns[2], dns[3]);
+          // ESP-IDF network info (no Arduino WiFi object in esp-idf framework)
+          esp_netif_dns_info_t dns_info;
+          esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+          char buf[48];
+          if (netif && esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK) {
+            uint32_t d = dns_info.ip.u_addr.ip4.addr;
+            snprintf(buf, sizeof(buf), "NTP DNS: %d.%d.%d.%d",
+                     (int)(d & 0xFF), (int)((d >> 8) & 0xFF),
+                     (int)((d >> 16) & 0xFF), (int)((d >> 24) & 0xFF));
+          } else {
+            snprintf(buf, sizeof(buf), "NTP DNS: unavailable");
+          }
           lv_label_set_text(id(lbl_ntp_ip), buf);
 
       # Gateway via WIFI component C++ call
       - lambda: |-
-          auto ip = WiFi.gatewayIP();
+          esp_netif_ip_info_t ip_info;
+          esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
           char buf[32];
-          snprintf(buf, sizeof(buf), "GW: %d.%d.%d.%d",
-                   ip[0], ip[1], ip[2], ip[3]);
+          if (netif && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+            uint32_t gw = ip_info.gw.addr;
+            snprintf(buf, sizeof(buf), "GW: %d.%d.%d.%d",
+                     (int)(gw & 0xFF), (int)((gw >> 8) & 0xFF),
+                     (int)((gw >> 16) & 0xFF), (int)((gw >> 24) & 0xFF));
+          } else {
+            snprintf(buf, sizeof(buf), "GW: unavailable");
+          }
           lv_label_set_text(id(lbl_wifi_gw), buf);
 
       # Battery voltage + charging with snprintf (avoids %f rendering issues)
