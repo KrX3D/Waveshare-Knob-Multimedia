@@ -209,8 +209,7 @@ lvgl:
                         max_value: 127
                         value: 127
                         on_value:
-                          then:
-                            - lambda: |-
+                          - lambda: |-
                                 char buf[24];
                                 snprintf(buf, sizeof(buf), "Strength: %d", (int)x);
                                 lv_label_set_text(id(lbl_haptic_val), buf);
@@ -251,8 +250,7 @@ lvgl:
                         max_value: 180
                         value: 45
                         on_value:
-                          then:
-                            - lambda: |-
+                          - lambda: |-
                                 char buf[24];
                                 snprintf(buf, sizeof(buf), "Timeout: %ds", (int)x);
                                 lv_label_set_text(id(lbl_timeout_val), buf);
