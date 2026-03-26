@@ -94,12 +94,6 @@ lvgl:
                   text_color: 0xCCCCCC
                   text: "--%"
 
-    # ── Patch settings_page — track active page ────────────────────────────
-    - id: settings_page
-      on_load:
-        then:
-          - lambda: 'id(active_page_id) = 2;'
-
     # ── New: info_page (page 3) — swipe left from media player ────────────
     # Simple at-a-glance info page: time, weather, heap, WiFi
     - id: info_page

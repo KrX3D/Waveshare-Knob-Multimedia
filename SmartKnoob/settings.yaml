@@ -9,6 +9,9 @@ globals:
 lvgl:
   pages:
     - id: settings_page
+      on_load:
+        then:
+          - lambda: 'id(active_page_id) = 2;'
       widgets:
 
         # Full dark circle background
