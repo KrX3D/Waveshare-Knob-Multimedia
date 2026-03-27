@@ -49,6 +49,44 @@ lvgl:
               lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel1);
               lv_label_set_text_fmt(id(lbl_mediaplayer_current),
                                     "Active: %s", active_mp.c_str());
+              // Apply cached options from HA to dropdown now that widget is rendered
+              std::string raw = id(mediaplayer_options_cache);
+              if (!raw.empty()) {
+                std::string opts2 = raw;
+                if (!opts2.empty() && opts2[0] == '[') {
+                  opts2.erase(0, 1);
+                  if (!opts2.empty() && opts2.back() == ']') opts2.pop_back();
+                  std::string cleaned2;
+                  for (char c2 : opts2) {
+                    if (c2 == 34 || c2 == 39) continue;
+                    cleaned2 += c2;
+                  }
+                  opts2 = cleaned2;
+                }
+                std::string cur2 = id(active_mediaplayer);
+                uint16_t sel2 = 0, idx2 = 0;
+                std::string dd2;
+                size_t p2 = 0;
+                while (true) {
+                  size_t cm2 = opts2.find(',', p2);
+                  std::string t2 = opts2.substr(p2, cm2 == std::string::npos ? std::string::npos : cm2 - p2);
+                  while (!t2.empty() && t2.front() == ' ') t2.erase(0,1);
+                  while (!t2.empty() && t2.back()  == ' ') t2.pop_back();
+                  if (!t2.empty()) {
+                    if (!dd2.empty()) dd2 += '\n';
+                    dd2 += t2;
+                    if (t2 == cur2) sel2 = idx2;
+                    idx2++;
+                  }
+                  if (cm2 == std::string::npos) break;
+                  p2 = cm2 + 1;
+                }
+                if (idx2 > 0) {
+                  lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd2.c_str());
+                  lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel2);
+                  ESP_LOGI("settings", "Dropdown set: %d options, sel=%d", idx2, sel2);
+                }
+              }
               // Sync timeout slider to actual current value on page open
               int timeout_cur = (int)id(display_timeout).state;
               lv_slider_set_value(id(timeout_slider), timeout_cur, LV_ANIM_OFF);
@@ -576,20 +614,12 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // Update global and label
+            // Update global only — dropdown is updated on settings page open
             id(active_mediaplayer) = x;
-            lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
-            // Find x in dropdown options and select it
-            const char* all_opts2 = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
-            std::string opts_str2(all_opts2 ? all_opts2 : "");
-            uint16_t idx2 = 0;
-            size_t p2 = 0;
-            while (true) {
-              size_t e2 = opts_str2.find('\n', p2);
-              std::string tok2 = opts_str2.substr(p2, e2 == std::string::npos ? std::string::npos : e2 - p2);
-              if (tok2 == x) { lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), idx2); break; }
-              if (e2 == std::string::npos) break;
-              p2 = e2 + 1; idx2++;
+            ESP_LOGI("settings", "Active player set to: %s", x.c_str());
+            // Update label only if settings page is currently shown
+            if (id(active_page_id) == 2) {
+              lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
             }
 
   # Get options list from HA input_select and rebuild dropdown dynamically
@@ -642,11 +672,7 @@ text_sensor:
               if (comma == std::string::npos) break;
               pos = comma + 1;
             }
-            if (idx == 0) return;
-            lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd_opts.c_str());
-            lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel_idx);
-            ESP_LOGI("settings", "Dropdown: %d options, selected %d (%s)",
-                     idx, sel_idx, cur_active.c_str());
+            ESP_LOGI("settings", "Options cached: %d entries", idx);
 
   # SD card text sensors — wired from sd_card.yaml IDs
   - platform: template
