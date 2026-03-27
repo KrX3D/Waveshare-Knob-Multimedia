@@ -13,6 +13,12 @@ globals:
     restore_value: true
     initial_value: '"${mediaplayer}"'
 
+  # Cached options string from HA input_select — used to rebuild dropdown
+  - id: mediaplayer_options_cache
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+
 lvgl:
   pages:
     - id: settings_page
@@ -25,17 +31,21 @@ lvgl:
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
               lv_obj_scroll_to_y(id(settings_scroll), 0, LV_ANIM_OFF);
               // Preselect dropdown to match active_mediaplayer global
+              // Scan dropdown options (built dynamically from HA) for match
               std::string active_mp = id(active_mediaplayer);
-              const char* mp_opts[] = {"None","media_player.krx_amd_pc",
-                                       "media_player.elitebook_g3",
-                                       "media_player.32_smart_monitor_m5",
-                                       "media_player.krx_samsung_tv"};
-              for (int i = 0; i < 5; i++) {
-                if (active_mp == mp_opts[i]) {
-                  lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
-                  break;
-                }
+              // lv_dropdown_get_options returns all options as \n-separated string
+              const char* all_opts1 = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
+              std::string opts_str1(all_opts1 ? all_opts1 : "");
+              uint16_t sel1 = 0, idx1 = 0;
+              size_t p1 = 0;
+              while (true) {
+                size_t e1 = opts_str1.find('\n', p1);
+                std::string tok1 = opts_str1.substr(p1, e1 == std::string::npos ? std::string::npos : e1 - p1);
+                if (tok1 == active_mp) { sel1 = idx1; break; }
+                if (e1 == std::string::npos) break;
+                p1 = e1 + 1; idx1++;
               }
+              lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel1);
               lv_label_set_text_fmt(id(lbl_mediaplayer_current),
                                     "Active: %s", active_mp.c_str());
               // Sync timeout slider to actual current value on page open
@@ -483,27 +493,21 @@ lvgl:
                         align: TOP_MID
                         y: 796
                         width: 210
+                        # Initial options — rebuilt dynamically from HA input_select
                         options:
                           - "None"
-                          - "krx_amd_pc"
-                          - "elitebook_g3"
-                          - "32_smart_monitor_m5"
-                          - "krx_samsung_tv"
+                          - "${mediaplayer}"
                         on_value:
                           then:
                             - lambda: |-
-                                // x is the selected index (0-based)
-                                // Map index directly to full entity_id
-                                const char* options[] = {
-                                  "None",
-                                  "media_player.krx_amd_pc",
-                                  "media_player.elitebook_g3",
-                                  "media_player.32_smart_monitor_m5",
-                                  "media_player.krx_samsung_tv"
-                                };
-                                int idx = (int)x;
-                                if (idx < 0 || idx > 4) idx = 0;
-                                std::string full(options[idx]);
+                                // x is the selected index; look up the option text
+                                char buf[64];
+                                // lv_dropdown_get_selected_str needs the options built by now
+                                uint16_t sel = lv_dropdown_get_selected((lv_obj_t*)id(mediaplayer_dropdown));
+                                lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
+                                                              buf, sizeof(buf));
+                                std::string full(buf);
+                                if (full.empty() || full == "None") full = "None";
                                 id(active_mediaplayer) = full;
                                 lv_label_set_text_fmt(id(lbl_mediaplayer_current),
                                                       "Active: %s", full.c_str());
@@ -557,7 +561,7 @@ text_sensor:
             if (pos != std::string::npos) ver = ver.substr(0, pos);
             lv_label_set_text_fmt(id(lbl_esphome_ver), "ESPHome: %s", ver.c_str());
 
-  # Sync current media player selection from HA input_select
+  # Sync current selection from HA input_select state
   - platform: homeassistant
     id: mediaplayer_select_state
     entity_id: input_select.media_player_thumbnail_source
@@ -565,25 +569,66 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // Update the "Active:" label
-            lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
-            // Sync dropdown selection
-            // Update global active_mediaplayer
+            // Update global and label
             id(active_mediaplayer) = x;
-            // Find matching option in dropdown (full entity IDs)
-            // Strip "media_player." prefix for dropdown short-name matching
-            std::string short_opt = x;
-            const std::string pfx = "media_player.";
-            if (short_opt.substr(0, pfx.size()) == pfx)
-              short_opt = short_opt.substr(pfx.size());
-            const char* options[] = {"None","krx_amd_pc","elitebook_g3",
-                                     "32_smart_monitor_m5","krx_samsung_tv"};
-            for (int i = 0; i < 5; i++) {
-              if (short_opt == options[i]) {
-                lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
-                break;
-              }
+            lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
+            // Find x in dropdown options and select it
+            const char* all_opts2 = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
+            std::string opts_str2(all_opts2 ? all_opts2 : "");
+            uint16_t idx2 = 0;
+            size_t p2 = 0;
+            while (true) {
+              size_t e2 = opts_str2.find('\n', p2);
+              std::string tok2 = opts_str2.substr(p2, e2 == std::string::npos ? std::string::npos : e2 - p2);
+              if (tok2 == x) { lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), idx2); break; }
+              if (e2 == std::string::npos) break;
+              p2 = e2 + 1; idx2++;
             }
+
+  # Get options list from HA input_select and rebuild dropdown dynamically
+  - platform: homeassistant
+    id: mediaplayer_options_sensor
+    entity_id: input_select.media_player_thumbnail_source
+    attribute: options
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            // x is the options list as a comma-separated string from HA
+            // e.g. "None,media_player.krx_amd_pc,media_player.elitebook_g3,..."
+            if (x.empty()) return;
+            id(mediaplayer_options_cache) = x;
+            
+            // Rebuild dropdown: clear and re-add all options
+            lv_dropdown_clear_options((lv_obj_t*)id(mediaplayer_dropdown));
+            
+            std::string opts = x;
+            std::string cur_active = id(active_mediaplayer);
+            uint16_t sel_idx = 0;
+            uint16_t idx = 0;
+            std::string token;
+            size_t pos = 0;
+            
+            // Parse comma-separated list
+            while (true) {
+              pos = opts.find(',');
+              token = (pos == std::string::npos) ? opts : opts.substr(0, pos);
+              // Trim whitespace
+              size_t s = token.find_first_not_of(" 	");
+              size_t e = token.find_last_not_of(" 	");
+              if (s != std::string::npos) token = token.substr(s, e - s + 1);
+              if (!token.empty()) {
+                lv_dropdown_add_option((lv_obj_t*)id(mediaplayer_dropdown),
+                                       token.c_str(), idx);
+                if (token == cur_active) sel_idx = idx;
+                idx++;
+              }
+              if (pos == std::string::npos) break;
+              opts = opts.substr(pos + 1);
+            }
+            // Select the current active player
+            lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel_idx);
+            ESP_LOGI("settings", "Dropdown rebuilt with %d options, selected %d", idx, sel_idx);
 
   # SD card text sensors — wired from sd_card.yaml IDs
   - platform: template
