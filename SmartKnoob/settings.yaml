@@ -616,7 +616,7 @@ text_sensor:
               // Remove quotes
               std::string cleaned;
               for (char c : opts) {
-                if (c == '"' || c == ''') continue;
+                if (c == 34 || c == 39) continue;  // 34=double-quote 39=single-quote
                 cleaned += c;
               }
               opts = cleaned;
