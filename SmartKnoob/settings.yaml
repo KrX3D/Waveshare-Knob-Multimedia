@@ -25,24 +25,24 @@ lvgl:
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
               lv_obj_scroll_to_y(id(settings_scroll), 0, LV_ANIM_OFF);
               // Preselect dropdown to match active_mediaplayer global
-              std::string cur = id(active_mediaplayer);
-              const char* opts[] = {"None","media_player.krx_amd_pc",
-                                    "media_player.elitebook_g3",
-                                    "media_player.32_smart_monitor_m5",
-                                    "media_player.krx_samsung_tv"};
+              std::string active_mp = id(active_mediaplayer);
+              const char* mp_opts[] = {"None","media_player.krx_amd_pc",
+                                       "media_player.elitebook_g3",
+                                       "media_player.32_smart_monitor_m5",
+                                       "media_player.krx_samsung_tv"};
               for (int i = 0; i < 5; i++) {
-                if (cur == opts[i]) {
+                if (active_mp == mp_opts[i]) {
                   lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
                   break;
                 }
               }
               lv_label_set_text_fmt(id(lbl_mediaplayer_current),
-                                    "Active: %s", cur.c_str());
+                                    "Active: %s", active_mp.c_str());
               // Sync timeout slider to actual current value on page open
-              int cur = (int)id(display_timeout).state;
-              lv_slider_set_value(id(timeout_slider), cur, LV_ANIM_OFF);
+              int timeout_cur = (int)id(display_timeout).state;
+              lv_slider_set_value(id(timeout_slider), timeout_cur, LV_ANIM_OFF);
               char buf[24];
-              snprintf(buf, sizeof(buf), "Timeout: %ds", cur);
+              snprintf(buf, sizeof(buf), "Timeout: %ds", timeout_cur);
               lv_label_set_text(id(lbl_timeout_val), buf);
               // Sync haptic slider label
               lv_label_set_text(id(lbl_haptic_val), "Strength: 127");
