@@ -19,6 +19,12 @@ globals:
     restore_value: false
     initial_value: '""'
 
+  # Guard: true while we are programmatically setting the dropdown selection
+  # prevents on_value from firing as if the user picked "None"
+  - id: dropdown_updating
+    type: bool
+    initial_value: 'false'
+
 lvgl:
   pages:
     - id: settings_page
@@ -82,8 +88,10 @@ lvgl:
                   p2 = cm2 + 1;
                 }
                 if (idx2 > 0) {
+                  id(dropdown_updating) = true;
                   lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd2.c_str());
                   lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel2);
+                  id(dropdown_updating) = false;
                   ESP_LOGI("settings", "Dropdown set: %d options, sel=%d", idx2, sel2);
                 }
               }
@@ -539,28 +547,35 @@ lvgl:
                         on_value:
                           then:
                             - lambda: |-
-                                // x is the selected index; look up the option text
-                                char buf[64];
-                                // lv_dropdown_get_selected_str needs the options built by now
-                                uint16_t sel = lv_dropdown_get_selected((lv_obj_t*)id(mediaplayer_dropdown));
-                                lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
-                                                              buf, sizeof(buf));
-                                std::string full(buf);
-                                if (full.empty() || full == "None") full = "None";
-                                id(active_mediaplayer) = full;
+                                // Skip if we triggered this programmatically
+                                if (id(dropdown_updating)) return;
+                                // Get selected option text from the options string
+                                const char* all = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
+                                std::string all_str(all ? all : "");
+                                uint16_t target = (uint16_t)x;
+                                uint16_t cur_idx = 0;
+                                std::string selected;
+                                size_t pp = 0;
+                                while (true) {
+                                  size_t nl = all_str.find('\n', pp);
+                                  std::string tok = all_str.substr(pp, nl == std::string::npos ? std::string::npos : nl - pp);
+                                  if (cur_idx == target) { selected = tok; break; }
+                                  if (nl == std::string::npos) break;
+                                  pp = nl + 1; cur_idx++;
+                                }
+                                if (selected.empty()) selected = "None";
+                                id(active_mediaplayer) = selected;
                                 lv_label_set_text_fmt(id(lbl_mediaplayer_current),
-                                                      "Active: %s", full.c_str());
-                                ESP_LOGI("settings", "Switched to: %s", full.c_str());
+                                                      "Active: %s", selected.c_str());
+                                ESP_LOGI("settings", "Switched to: %s", selected.c_str());
+                                // Reset volume arc
+                                id(current_volume) = 0.0f;
+                                lv_arc_set_value((lv_obj_t*)id(volume_control_widget), 0);
                             - homeassistant.action:
                                 action: input_select.select_option
                                 data:
                                   entity_id: input_select.media_player_thumbnail_source
                                   option: !lambda 'return id(active_mediaplayer);'
-                            # Reset volume to 0 so arc doesn't show stale value
-                            - lambda: |-
-                                id(current_volume) = 0.0f;
-                                lv_arc_set_value((lv_obj_t*)id(volume_control_widget), 0);
-                            # Refresh state from newly selected player
                             - script.execute: refresh_media_data
 
 # ── Sensors populating settings labels ─────────────────────────────────────

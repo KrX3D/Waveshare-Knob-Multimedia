@@ -320,7 +320,14 @@ script:
     mode: restart
     then:
       - lambda: |-
-          id(media_image_jpeg)->set_url("${homeassistant_thumbnail_url}");
+          // Build thumbnail URL dynamically using active_mediaplayer
+          // URL format: https://<ha_url>/api/<integration>/<entity_id>/thumbnail.png
+          std::string base = "${homeassistant_url}";
+          std::string intg = "${integration}";
+          std::string entity = id(active_mediaplayer);
+          std::string url = "https://" + base + "/api/" + intg + "/" + entity + "/thumbnail.png";
+          ESP_LOGI("cover", "Fetching thumbnail: %s", url.c_str());
+          id(media_image_jpeg)->set_url(url.c_str());
       - delay: 100ms
       - lambda: 'id(media_image_jpeg)->update();'
 
