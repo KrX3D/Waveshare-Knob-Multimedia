@@ -211,17 +211,17 @@ lvgl:
             text_font: roboto_36
             text_color: 0x000000
             align: CENTER
-            y: -40
+            y: 10
             long_mode: WRAP
             text_align: CENTER
             text: !lambda 'return id(time_str);'
 
         - label:
             id: temp_widget
-            text_font: roboto_48
+            text_font: roboto_36
             text_color: 0x000000
             align: CENTER
-            y: 40
+            y: 100
             text: "–C"
 
         # Battery arc — top area
@@ -488,44 +488,47 @@ lvgl:
             text_color: 0x000000
             text: "Info"
 
+        # Dummy labels to keep IDs valid (referenced in interval lambda)
         - label:
             id: info_time_label
             align: CENTER
-            y: -50
-            text_font: roboto_48
+            y: 0
+            text_font: roboto_small
             text_color: 0x000000
-            text: "--:--"
+            opa: 0
+            text: ""
 
         - label:
             id: info_temp_label
             align: CENTER
-            y: 10
-            text_font: roboto_36
+            y: 0
+            text_font: roboto_small
             text_color: 0x000000
-            text: "–"
+            opa: 0
+            text: ""
 
         - label:
             id: info_wifi_label
             align: CENTER
-            y: 60
-            text_font: roboto_small
-            text_color: 0x333333
+            y: -40
+            text_font: roboto_28
+            text_color: 0x000000
             text: "WiFi: –"
 
         - label:
             id: info_heap_label
             align: CENTER
-            y: 82
-            text_font: roboto_small
-            text_color: 0x333333
+            y: 10
+            text_font: roboto_28
+            text_color: 0x000000
             text: "Heap: –"
 
         - label:
             id: info_batt_label
             align: CENTER
-            y: 104
-            text_font: roboto_small
-            text_color: 0x333333
+            y: 60
+            text_font: roboto_28
+            text_color: 0x000000
             text: "Batt: --%"
 
         - label:
