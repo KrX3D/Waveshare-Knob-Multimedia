@@ -37,7 +37,6 @@ lvgl:
       on_load:
         then:
           - lambda: 'id(active_page_id) = 2;'
-          # Immediate: scroll flags + UI sync (no widget rebuilds)
           - lambda: |-
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_ELASTIC);
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
@@ -50,8 +49,8 @@ lvgl:
               snprintf(buf, sizeof(buf), "Timeout: %ds", timeout_cur);
               lv_label_set_text(id(lbl_timeout_val), buf);
               lv_label_set_text(id(lbl_haptic_val), "Strength: 127");
-          # Rebuild dropdown after page animation completes
-          - script.execute: rebuild_mediaplayer_dropdown
+              // Trigger dropdown rebuild after page renders
+              id(rebuild_mediaplayer_dropdown)->execute();
       widgets:
 
         # Full dark circle background
@@ -600,10 +599,13 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // Just store — dropdown is rebuilt from cache when settings page opens
-            if (!x.empty()) {
-              id(mediaplayer_options_cache) = x;
-              ESP_LOGI("settings", "Options cached (%d bytes)", (int)x.size());
+            if (x.empty()) return;
+            id(mediaplayer_options_cache) = x;
+            ESP_LOGI("settings", "Options cached (%d bytes)", (int)x.size());
+            // Only update widget if settings page is currently open
+            // (calling LVGL functions during boot crashes — widget tree not ready)
+            if (id(active_page_id) == 2) {
+              id(rebuild_mediaplayer_dropdown)->execute();
             }
 
   # SD card text sensors — wired from sd_card.yaml IDs
@@ -732,28 +734,17 @@ script:
             p = cm + 1;
           }
           if (idx == 0) { ESP_LOGW("settings", "No valid options found"); return; }
-          ESP_LOGI("settings", "Setting %d options on dropdown", idx);
-          // Store in global so pointer stays valid after lambda returns.
-          // Use set_options_static — avoids lv_mem_free of the flash-backed
-          // initial pointer that ESPHome set at init time (crashes heap_caps_free).
           id(mediaplayer_dd_str) = dd;
           id(dropdown_updating) = true;
           lv_dropdown_set_options_static((lv_obj_t*)id(mediaplayer_dropdown),
                                           id(mediaplayer_dd_str).c_str());
           lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel);
-          // lv_obj_get_disp returns null inside scrollable containers in ESPHome pages,
-          // so lv_dropdown_set_selected can't repaint the button label automatically.
-          // Manually get the button's label child (child 0) and set its text directly.
-          lv_obj_t* dd_btn = (lv_obj_t*)id(mediaplayer_dropdown);
-          lv_obj_t* dd_label = lv_obj_get_child(dd_btn, 0);
-          if (dd_label != nullptr) {
-            lv_label_set_text(dd_label, cur.c_str());
-            ESP_LOGI("settings", "Button label set to '%s'", cur.c_str());
-          } else {
-            ESP_LOGW("settings", "Could not find dropdown button label child");
-          }
+          // lv_obj_get_disp returns null in ESPHome pages — set label child directly
+          lv_obj_t* lbl = lv_obj_get_child((lv_obj_t*)id(mediaplayer_dropdown), 0);
+          if (lbl) lv_label_set_text(lbl, cur.c_str());
           id(dropdown_updating) = false;
-          ESP_LOGI("settings", "Dropdown rebuilt: %d opts, sel=%d", idx, sel);
+          ESP_LOGI("settings", "Dropdown done: %d opts sel=%d label='%s'",
+                   idx, sel, cur.c_str());
 
 
 interval:
