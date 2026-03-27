@@ -428,6 +428,58 @@ lvgl:
                         text_color: 0xCCCCCC
                         text: "NTP: ${ntp_primary}"
 
+                    # Media Player section
+                    - label:
+                        align: TOP_MID
+                        y: 744
+                        text_font: roboto_18_bold
+                        text_color: 0x00BFFF
+                        text: "Media Player"
+
+                    - obj:
+                        align: TOP_MID
+                        y: 766
+                        width: 220
+                        height: 1
+                        bg_color: 0x00BFFF
+                        bg_opa: COVER
+                        border_width: 0
+
+                    - label:
+                        id: lbl_mediaplayer_current
+                        align: TOP_LEFT
+                        y: 774
+                        text_font: roboto_small
+                        text_color: 0xCCCCCC
+                        long_mode: DOT
+                        width: 210
+                        text: "Active: -"
+
+                    - dropdown:
+                        id: mediaplayer_dropdown
+                        align: TOP_MID
+                        y: 796
+                        width: 210
+                        options:
+                          - "None"
+                          - "krx_amd_pc"
+                          - "elitebook_g3_3"
+                          - "32_smart_monitor_m5"
+                          - "krx_samsung_tv"
+                        on_value:
+                          then:
+                            - homeassistant.action:
+                                action: input_select.select_option
+                                data:
+                                  entity_id: input_select.media_player_thumbnail_source
+                                  option: !lambda |-
+                                    char buf[64];
+                                    lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
+                                                                  buf, sizeof(buf));
+                                    std::string opt(buf);
+                                    if (opt == "None") return std::string("None");
+                                    return std::string("media_player.") + opt;
+
 # ── Sensors populating settings labels ─────────────────────────────────────
 text_sensor:
   - platform: wifi_info
@@ -488,7 +540,7 @@ text_sensor:
                                      "32_smart_monitor_m5","krx_samsung_tv"};
             for (int i = 0; i < 5; i++) {
               if (short_name == options[i]) {
-                lv_dropdown_set_selected(id(mediaplayer_dropdown), i);
+                lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
                 break;
               }
             }
