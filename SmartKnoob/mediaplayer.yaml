@@ -326,27 +326,40 @@ script:
 
   - id: refresh_media_data
     then:
-      - lambda: 'ESP_LOGI("media", "Refreshing media player data...");'
+      - lambda: 'ESP_LOGI("media", "Refreshing all media state...");'
+      # Clear stale display data immediately so user doesn't see old player's info
+      - lambda: |-
+          lv_label_set_text(id(media_player_title_label),  "...");
+          lv_label_set_text(id(media_player_artist_label), "...");
+          lv_label_set_text(id(time_label),                "0:00/0:00");
+          lv_slider_set_value(id(media_player_duration_pos_slider), 0, LV_ANIM_OFF);
+          lv_arc_set_value((lv_obj_t*)id(volume_control_widget), 0);
+      # Reset cover to placeholder
+      - lvgl.image.update:
+          id: album_cover_image
+          src: album_placeholder
+      # Ask HA to push all current state for the active player.
+      # This triggers on_value for all subscribed sensors (title, artist,
+      # cover, volume, position, duration) if subscribed to same entity.
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
             entity_id: !lambda 'return id(active_mediaplayer);'
-      - delay: 500ms
-      - homeassistant.action:
-          action: media_player.volume_get
-          data:
-            entity_id: !lambda 'return id(active_mediaplayer);'
+      - delay: 1s
+      # Update volume arc from sensor if available
       - if:
           condition:
             lambda: 'return id(media_player_volume).has_state() && id(media_player_volume).state > 0;'
           then:
             - lambda: |-
                 float vol = id(media_player_volume).state;
-                ESP_LOGI("media", "Refreshing volume to %.2f", vol);
+                ESP_LOGI("media", "Volume refreshed: %.2f", vol);
                 id(current_volume) = vol;
             - lvgl.arc.update:
                 id: volume_control_widget
                 value: !lambda 'return id(current_volume) * 100;'
+      # Trigger cover download in case entity_picture changed
+      - script.execute: update_cover_script
 
   - id: volume_up
     then:
