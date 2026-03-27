@@ -30,8 +30,9 @@ lvgl:
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_ELASTIC);
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
               lv_obj_scroll_to_y(id(settings_scroll), 0, LV_ANIM_OFF);
-              // Preselect dropdown to match active_mediaplayer global
-              // Scan dropdown options (built dynamically from HA) for match
+              // Preselect dropdown — options may not be loaded yet from HA.
+              // Set index 1 (default mediaplayer) if active matches it,
+              // otherwise index 0 (None). Full sync happens when options_sensor fires.
               std::string active_mp = id(active_mediaplayer);
               // lv_dropdown_get_options returns all options as \n-separated string
               const char* all_opts1 = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
@@ -517,6 +518,12 @@ lvgl:
                                 data:
                                   entity_id: input_select.media_player_thumbnail_source
                                   option: !lambda 'return id(active_mediaplayer);'
+                            # Reset volume to 0 so arc doesn't show stale value
+                            - lambda: |-
+                                id(current_volume) = 0.0f;
+                                lv_arc_set_value((lv_obj_t*)id(volume_control_widget), 0);
+                            # Refresh state from newly selected player
+                            - script.execute: refresh_media_data
 
 # ── Sensors populating settings labels ─────────────────────────────────────
 text_sensor:
@@ -594,41 +601,60 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // x is the options list as a comma-separated string from HA
-            // e.g. "None,media_player.krx_amd_pc,media_player.elitebook_g3,..."
+            // Log raw value to see format from HA
+            ESP_LOGI("settings", "options raw: '%s'", x.c_str());
             if (x.empty()) return;
             id(mediaplayer_options_cache) = x;
-            
-            // Rebuild dropdown: clear and re-add all options
-            lv_dropdown_clear_options((lv_obj_t*)id(mediaplayer_dropdown));
-            
+
+            // HA sends list attributes as comma-separated plain strings
+            // e.g. "None, media_player.krx_amd_pc, media_player.elitebook_g3"
+            // Strip leading/trailing brackets if JSON array format
             std::string opts = x;
+            if (!opts.empty() && opts[0] == '[') {
+              opts.erase(0, 1);
+              if (!opts.empty() && opts.back() == ']') opts.pop_back();
+              // Remove quotes around each item
+              std::string cleaned;
+              bool in_quote = false;
+              for (char c : opts) {
+                if (c == '"' || c == ''') { in_quote = !in_quote; continue; }
+                cleaned += c;
+              }
+              opts = cleaned;
+            }
+
             std::string cur_active = id(active_mediaplayer);
-            uint16_t sel_idx = 0;
-            uint16_t idx = 0;
-            std::string token;
+            uint16_t sel_idx = 0, idx = 0;
+
+            // Build newline-separated string for lv_dropdown_set_options (most reliable)
+            std::string dd_opts;
             size_t pos = 0;
-            
-            // Parse comma-separated list
             while (true) {
-              pos = opts.find(',');
-              token = (pos == std::string::npos) ? opts : opts.substr(0, pos);
+              size_t end = opts.find(',', pos);
+              std::string tok = opts.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
               // Trim whitespace
-              size_t s = token.find_first_not_of(" 	");
-              size_t e = token.find_last_not_of(" 	");
-              if (s != std::string::npos) token = token.substr(s, e - s + 1);
-              if (!token.empty()) {
-                lv_dropdown_add_option((lv_obj_t*)id(mediaplayer_dropdown),
-                                       token.c_str(), idx);
-                if (token == cur_active) sel_idx = idx;
+              size_t s = tok.find_first_not_of(" 	
+");
+              size_t e2 = tok.find_last_not_of(" 	
+");
+              if (s != std::string::npos) tok = tok.substr(s, e2 - s + 1);
+              if (!tok.empty()) {
+                if (!dd_opts.empty()) dd_opts += '
+';
+                dd_opts += tok;
+                ESP_LOGI("settings", "  option[%d]: '%s'", idx, tok.c_str());
+                if (tok == cur_active) sel_idx = idx;
                 idx++;
               }
-              if (pos == std::string::npos) break;
-              opts = opts.substr(pos + 1);
+              if (end == std::string::npos) break;
+              pos = end + 1;
             }
-            // Select the current active player
+            if (idx == 0) return;
+            // Set all options at once then select
+            lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd_opts.c_str());
             lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel_idx);
-            ESP_LOGI("settings", "Dropdown rebuilt with %d options, selected %d", idx, sel_idx);
+            ESP_LOGI("settings", "Dropdown: %d options, selected %d (%s)",
+                     idx, sel_idx, cur_active.c_str());
 
   # SD card text sensors — wired from sd_card.yaml IDs
   - platform: template

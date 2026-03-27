@@ -96,6 +96,11 @@ globals:
     type: bool
     initial_value: 'false'
 
+  # Grace period after connect — prevents spurious play/pause on startup
+  - id: startup_grace
+    type: bool
+    initial_value: 'true'
+
   - id: current_media_title
     type: std::string
     initial_value: ""
@@ -121,12 +126,17 @@ api:
     - lambda: |-
         ESP_LOGI("media", "Home Assistant connected, initializing...");
         id(api_ready) = true;
+        id(startup_grace) = true;
     - homeassistant.service:
         service: homeassistant.update_entity
         data:
           entity_id: $mediaplayer
     - delay: 1s
     - script.execute: refresh_media_data
+    - delay: 8s
+    - lambda: |-
+        id(startup_grace) = false;
+        ESP_LOGI("media", "Startup grace period ended");
 
 text_sensor:
   - platform: homeassistant
@@ -226,7 +236,7 @@ binary_sensor:
       then:
         - if:
             condition:
-              lambda: 'return id(api_ready);'
+              lambda: 'return id(api_ready) && !id(startup_grace);'
             then:
               - lvgl.page.show: media_player_page
     on_release:
@@ -321,12 +331,19 @@ script:
           service: homeassistant.update_entity
           data:
             entity_id: !lambda 'return id(active_mediaplayer);'
+      - delay: 500ms
+      - homeassistant.action:
+          action: media_player.volume_get
+          data:
+            entity_id: !lambda 'return id(active_mediaplayer);'
       - if:
           condition:
             lambda: 'return id(media_player_volume).has_state() && id(media_player_volume).state > 0;'
           then:
             - lambda: |-
-                id(current_volume) = id(media_player_volume).state;
+                float vol = id(media_player_volume).state;
+                ESP_LOGI("media", "Refreshing volume to %.2f", vol);
+                id(current_volume) = vol;
             - lvgl.arc.update:
                 id: volume_control_widget
                 value: !lambda 'return id(current_volume) * 100;'
