@@ -606,18 +606,17 @@ text_sensor:
             if (x.empty()) return;
             id(mediaplayer_options_cache) = x;
 
-            // HA sends list attributes as comma-separated plain strings
+            // HA sends list attributes as comma-separated plain string
             // e.g. "None, media_player.krx_amd_pc, media_player.elitebook_g3"
-            // Strip leading/trailing brackets if JSON array format
             std::string opts = x;
+            // Strip JSON array brackets if present
             if (!opts.empty() && opts[0] == '[') {
               opts.erase(0, 1);
               if (!opts.empty() && opts.back() == ']') opts.pop_back();
-              // Remove quotes around each item
+              // Remove quotes
               std::string cleaned;
-              bool in_quote = false;
               for (char c : opts) {
-                if (c == '"' || c == ''') { in_quote = !in_quote; continue; }
+                if (c == '"' || c == ''') continue;
                 cleaned += c;
               }
               opts = cleaned;
@@ -625,32 +624,25 @@ text_sensor:
 
             std::string cur_active = id(active_mediaplayer);
             uint16_t sel_idx = 0, idx = 0;
-
-            // Build newline-separated string for lv_dropdown_set_options (most reliable)
             std::string dd_opts;
             size_t pos = 0;
             while (true) {
-              size_t end = opts.find(',', pos);
-              std::string tok = opts.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
-              // Trim whitespace
-              size_t s = tok.find_first_not_of(" 	
-");
-              size_t e2 = tok.find_last_not_of(" 	
-");
-              if (s != std::string::npos) tok = tok.substr(s, e2 - s + 1);
+              size_t comma = opts.find(',', pos);
+              std::string tok = opts.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+              // Trim leading/trailing spaces
+              while (!tok.empty() && tok.front() == ' ') tok.erase(0,1);
+              while (!tok.empty() && tok.back()  == ' ') tok.pop_back();
               if (!tok.empty()) {
-                if (!dd_opts.empty()) dd_opts += '
-';
+                if (!dd_opts.empty()) dd_opts += '\n';
                 dd_opts += tok;
                 ESP_LOGI("settings", "  option[%d]: '%s'", idx, tok.c_str());
                 if (tok == cur_active) sel_idx = idx;
                 idx++;
               }
-              if (end == std::string::npos) break;
-              pos = end + 1;
+              if (comma == std::string::npos) break;
+              pos = comma + 1;
             }
             if (idx == 0) return;
-            // Set all options at once then select
             lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd_opts.c_str());
             lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel_idx);
             ESP_LOGI("settings", "Dropdown: %d options, selected %d (%s)",
