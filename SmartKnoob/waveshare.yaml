@@ -109,12 +109,16 @@ script:
       - script.stop: screentime
       - light.turn_off: back_light
 
-  # Hold screen 2 seconds anywhere → open settings page
+  # Hold screen 2 seconds → open settings (ignored when already on settings page)
   - id: long_press_settings
     mode: single
     then:
       - delay: 2s
-      - drv2605.play_effect:        # short confirmation buzz on settings open
-          id: haptic_driver
-          effect: 1                 # effect 1 = single click
-      - lvgl.page.show: settings_page
+      - if:
+          condition:
+            lambda: 'return id(active_page_id) != 2;'
+          then:
+            - drv2605.play_effect:
+                id: haptic_driver
+                effect: 1
+            - lvgl.page.show: settings_page

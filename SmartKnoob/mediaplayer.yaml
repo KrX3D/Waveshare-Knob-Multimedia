@@ -124,7 +124,7 @@ api:
     - homeassistant.service:
         service: homeassistant.update_entity
         data:
-          entity_id: !lambda 'return id(active_mediaplayer);'
+          entity_id: $mediaplayer
     - delay: 1s
     - script.execute: refresh_media_data
 
@@ -404,4 +404,4 @@ interval:
             - homeassistant.service:
                 service: homeassistant.update_entity
                 data:
-                  entity_id: !lambda 'return id(active_mediaplayer);'
+                  entity_id: $mediaplayer

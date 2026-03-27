@@ -415,7 +415,7 @@ lvgl:
                     - label:
                         id: lbl_esphome_ver
                         align: TOP_LEFT
-                        y: 674
+                        y: 682
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         long_mode: DOT
@@ -473,7 +473,7 @@ lvgl:
                         options:
                           - "None"
                           - "krx_amd_pc"
-                          - "elitebook_g3"
+                          - "elitebook_g3_3"
                           - "32_smart_monitor_m5"
                           - "krx_samsung_tv"
                         on_value:
@@ -483,19 +483,19 @@ lvgl:
                                 lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
                                                               buf, sizeof(buf));
                                 std::string opt(buf);
-                                id(active_mediaplayer) = opt;
+                                // Reconstruct full entity_id
+                                std::string full = (opt == "None") ? "None"
+                                                   : std::string("media_player.") + opt;
+                                id(active_mediaplayer) = full;
                                 lv_label_set_text_fmt(id(lbl_mediaplayer_current),
-                                                      "Active: %s", opt.c_str());
-                                ESP_LOGI("settings", "Media player changed to: %s", opt.c_str());
+                                                      "Active: %s", full.c_str());
+                                ESP_LOGI("settings", "Switched to: %s", full.c_str());
                             - homeassistant.action:
                                 action: input_select.select_option
                                 data:
                                   entity_id: input_select.media_player_thumbnail_source
                                   option: !lambda |-
-                                    char buf[64];
-                                    lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
-                                                                  buf, sizeof(buf));
-                                    return std::string(buf);
+                                    return id(active_mediaplayer);
 
 # ── Sensors populating settings labels ─────────────────────────────────────
 text_sensor:
@@ -522,12 +522,11 @@ text_sensor:
         then:
           # Guard against 0.0.0.0 which fires before DHCP completes
           - lambda: |-
-              // Only update if real IP and label still shows placeholder
-              if (!x.empty() && x != "0.0.0.0") {
-                // Check if we already have a good DNS (don't overwrite with backup 0.0.0.0)
-                const char* cur = lv_label_get_text(id(lbl_wifi_dns));
-                if (cur == nullptr || strncmp(cur, "DNS: -", 6) == 0)
-                  lv_label_set_text_fmt(id(lbl_wifi_dns), "DNS: %s", x.c_str());
+              // wifi_info fires once per DNS entry; only update on first non-zero value
+              static bool dns_set = false;
+              if (!dns_set && !x.empty() && x != "0.0.0.0") {
+                lv_label_set_text_fmt(id(lbl_wifi_dns), "DNS: %s", x.c_str());
+                dns_set = true;
               }
 
   - platform: version
@@ -555,12 +554,15 @@ text_sensor:
             // Update global active_mediaplayer
             id(active_mediaplayer) = x;
             // Find matching option in dropdown (full entity IDs)
-            const char* options[] = {"None","media_player.krx_amd_pc",
-                                     "media_player.elitebook_g3",
-                                     "media_player.32_smart_monitor_m5",
-                                     "media_player.krx_samsung_tv"};
+            // Strip "media_player." prefix for dropdown short-name matching
+            std::string short_opt = x;
+            const std::string pfx = "media_player.";
+            if (short_opt.substr(0, pfx.size()) == pfx)
+              short_opt = short_opt.substr(pfx.size());
+            const char* options[] = {"None","krx_amd_pc","elitebook_g3",
+                                     "32_smart_monitor_m5","krx_samsung_tv"};
             for (int i = 0; i < 5; i++) {
-              if (x == options[i]) {
+              if (short_opt == options[i]) {
                 lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
                 break;
               }
