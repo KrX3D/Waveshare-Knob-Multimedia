@@ -20,10 +20,16 @@ globals:
     initial_value: '""'
 
   # Guard: true while we are programmatically setting the dropdown selection
-  # prevents on_value from firing as if the user picked "None"
   - id: dropdown_updating
     type: bool
     initial_value: 'false'
+
+  # Persistent storage for the built dropdown options string.
+  # lv_dropdown_set_options_static stores the raw pointer — must outlive the call.
+  - id: mediaplayer_dd_str
+    type: std::string
+    restore_value: false
+    initial_value: '""'
 
 lvgl:
   pages:
@@ -31,78 +37,21 @@ lvgl:
       on_load:
         then:
           - lambda: 'id(active_page_id) = 2;'
+          # Immediate: scroll flags + UI sync (no widget rebuilds)
           - lambda: |-
-              // Disable elastic overscroll so content can't scroll beyond top/bottom
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_ELASTIC);
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
               lv_obj_scroll_to_y(id(settings_scroll), 0, LV_ANIM_OFF);
-              // Preselect dropdown — options may not be loaded yet from HA.
-              // Set index 1 (default mediaplayer) if active matches it,
-              // otherwise index 0 (None). Full sync happens when options_sensor fires.
-              std::string active_mp = id(active_mediaplayer);
-              // lv_dropdown_get_options returns all options as \n-separated string
-              const char* all_opts1 = lv_dropdown_get_options((lv_obj_t*)id(mediaplayer_dropdown));
-              std::string opts_str1(all_opts1 ? all_opts1 : "");
-              uint16_t sel1 = 0, idx1 = 0;
-              size_t p1 = 0;
-              while (true) {
-                size_t e1 = opts_str1.find('\n', p1);
-                std::string tok1 = opts_str1.substr(p1, e1 == std::string::npos ? std::string::npos : e1 - p1);
-                if (tok1 == active_mp) { sel1 = idx1; break; }
-                if (e1 == std::string::npos) break;
-                p1 = e1 + 1; idx1++;
-              }
-              lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel1);
               lv_label_set_text_fmt(id(lbl_mediaplayer_current),
-                                    "Active: %s", active_mp.c_str());
-              // Apply cached options from HA to dropdown now that widget is rendered
-              std::string raw = id(mediaplayer_options_cache);
-              if (!raw.empty()) {
-                std::string opts2 = raw;
-                if (!opts2.empty() && opts2[0] == '[') {
-                  opts2.erase(0, 1);
-                  if (!opts2.empty() && opts2.back() == ']') opts2.pop_back();
-                  std::string cleaned2;
-                  for (char c2 : opts2) {
-                    if (c2 == 34 || c2 == 39) continue;
-                    cleaned2 += c2;
-                  }
-                  opts2 = cleaned2;
-                }
-                std::string cur2 = id(active_mediaplayer);
-                uint16_t sel2 = 0, idx2 = 0;
-                std::string dd2;
-                size_t p2 = 0;
-                while (true) {
-                  size_t cm2 = opts2.find(',', p2);
-                  std::string t2 = opts2.substr(p2, cm2 == std::string::npos ? std::string::npos : cm2 - p2);
-                  while (!t2.empty() && t2.front() == ' ') t2.erase(0,1);
-                  while (!t2.empty() && t2.back()  == ' ') t2.pop_back();
-                  if (!t2.empty()) {
-                    if (!dd2.empty()) dd2 += '\n';
-                    dd2 += t2;
-                    if (t2 == cur2) sel2 = idx2;
-                    idx2++;
-                  }
-                  if (cm2 == std::string::npos) break;
-                  p2 = cm2 + 1;
-                }
-                if (idx2 > 0) {
-                  id(dropdown_updating) = true;
-                  lv_dropdown_set_options((lv_obj_t*)id(mediaplayer_dropdown), dd2.c_str());
-                  lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel2);
-                  id(dropdown_updating) = false;
-                  ESP_LOGI("settings", "Dropdown set: %d options, sel=%d", idx2, sel2);
-                }
-              }
-              // Sync timeout slider to actual current value on page open
+                                    "Active: %s", id(active_mediaplayer).c_str());
               int timeout_cur = (int)id(display_timeout).state;
               lv_slider_set_value(id(timeout_slider), timeout_cur, LV_ANIM_OFF);
               char buf[24];
               snprintf(buf, sizeof(buf), "Timeout: %ds", timeout_cur);
               lv_label_set_text(id(lbl_timeout_val), buf);
-              // Sync haptic slider label
               lv_label_set_text(id(lbl_haptic_val), "Strength: 127");
+          # Rebuild dropdown after page animation completes
+          - script.execute: rebuild_mediaplayer_dropdown
       widgets:
 
         # Full dark circle background
@@ -540,10 +489,9 @@ lvgl:
                         align: TOP_MID
                         y: 796
                         width: 210
-                        # Initial options — rebuilt dynamically from HA input_select
+                        # Placeholder — overwritten by rebuild_mediaplayer_dropdown
                         options:
-                          - "None"
-                          - "${mediaplayer}"
+                          - "loading..."
                         on_value:
                           then:
                             - lambda: |-
@@ -563,7 +511,7 @@ lvgl:
                                   if (nl == std::string::npos) break;
                                   pp = nl + 1; cur_idx++;
                                 }
-                                if (selected.empty()) selected = "None";
+                                if (selected.empty()) return;  // shouldn't happen
                                 id(active_mediaplayer) = selected;
                                 lv_label_set_text_fmt(id(lbl_mediaplayer_current),
                                                       "Active: %s", selected.c_str());
@@ -629,12 +577,18 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // Update global only — dropdown is updated on settings page open
-            id(active_mediaplayer) = x;
-            ESP_LOGI("settings", "Active player set to: %s", x.c_str());
-            // Update label only if settings page is currently shown
+            // Only update active_mediaplayer from HA if it's a real entity, not "None"
+            // "None" in input_select means nothing is selected in HA — keep our local value
+            if (!x.empty() && x != "None") {
+              id(active_mediaplayer) = x;
+              ESP_LOGI("settings", "Active player synced from HA: %s", x.c_str());
+            } else {
+              ESP_LOGI("settings", "HA reports None — keeping local active: %s",
+                       id(active_mediaplayer).c_str());
+            }
             if (id(active_page_id) == 2) {
-              lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
+              lv_label_set_text_fmt(id(lbl_mediaplayer_current),
+                                    "Active: %s", id(active_mediaplayer).c_str());
             }
 
   # Get options list from HA input_select and rebuild dropdown dynamically
@@ -646,48 +600,11 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            // Log raw value to see format from HA
-            ESP_LOGI("settings", "options raw: '%s'", x.c_str());
-            if (x.empty()) return;
-            id(mediaplayer_options_cache) = x;
-
-            // HA sends list attributes as comma-separated plain string
-            // e.g. "None, media_player.krx_amd_pc, media_player.elitebook_g3"
-            std::string opts = x;
-            // Strip JSON array brackets if present
-            if (!opts.empty() && opts[0] == '[') {
-              opts.erase(0, 1);
-              if (!opts.empty() && opts.back() == ']') opts.pop_back();
-              // Remove quotes
-              std::string cleaned;
-              for (char c : opts) {
-                if (c == 34 || c == 39) continue;  // 34=double-quote 39=single-quote
-                cleaned += c;
-              }
-              opts = cleaned;
+            // Just store — dropdown is rebuilt from cache when settings page opens
+            if (!x.empty()) {
+              id(mediaplayer_options_cache) = x;
+              ESP_LOGI("settings", "Options cached (%d bytes)", (int)x.size());
             }
-
-            std::string cur_active = id(active_mediaplayer);
-            uint16_t sel_idx = 0, idx = 0;
-            std::string dd_opts;
-            size_t pos = 0;
-            while (true) {
-              size_t comma = opts.find(',', pos);
-              std::string tok = opts.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
-              // Trim leading/trailing spaces
-              while (!tok.empty() && tok.front() == ' ') tok.erase(0,1);
-              while (!tok.empty() && tok.back()  == ' ') tok.pop_back();
-              if (!tok.empty()) {
-                if (!dd_opts.empty()) dd_opts += '\n';
-                dd_opts += tok;
-                ESP_LOGI("settings", "  option[%d]: '%s'", idx, tok.c_str());
-                if (tok == cur_active) sel_idx = idx;
-                idx++;
-              }
-              if (comma == std::string::npos) break;
-              pos = comma + 1;
-            }
-            ESP_LOGI("settings", "Options cached: %d entries", idx);
 
   # SD card text sensors — wired from sd_card.yaml IDs
   - platform: template
@@ -768,6 +685,76 @@ sensor:
             char buf[32];
             snprintf(buf, sizeof(buf), "Free: %.1f MB", x);
             lv_label_set_text(id(lbl_sd_free), buf);
+
+script:
+  - id: rebuild_mediaplayer_dropdown
+    mode: single
+    then:
+      - delay: 500ms
+      - lambda: |-
+          ESP_LOGI("settings", "rebuild start, page=%d", id(active_page_id));
+          if (id(active_page_id) != 2) {
+            ESP_LOGW("settings", "rebuild: not on settings page, abort");
+            return;
+          }
+          std::string cur = id(active_mediaplayer);
+          std::string raw = id(mediaplayer_options_cache);
+          ESP_LOGI("settings", "rebuild: active='%s' cache=%d bytes",
+                   cur.c_str(), (int)raw.size());
+          if (raw.empty()) { ESP_LOGW("settings", "Cache empty"); return; }
+          // Strip Python list brackets: ['a','b'] -> a,b
+          std::string opts = raw;
+          if (!opts.empty() && opts[0] == '[')
+            opts = opts.substr(1, opts.size() > 2 ? opts.size() - 2 : 0);
+          // Strip single-quotes (ASCII 39)
+          std::string cleaned;
+          for (char c : opts) { if (c != 39) cleaned += c; }
+          ESP_LOGI("settings", "cleaned: '%s'", cleaned.c_str());
+          // Build \n-separated list of media_player.* only
+          std::string dd;
+          uint16_t sel = 0, idx = 0;
+          size_t p = 0;
+          while (true) {
+            size_t cm = cleaned.find(',', p);
+            std::string t = cleaned.substr(p,
+              cm == std::string::npos ? std::string::npos : cm - p);
+            while (!t.empty() && t.front() == ' ') t.erase(0, 1);
+            while (!t.empty() && t.back()  == ' ') t.pop_back();
+            if (t.size() > 12 && t.substr(0, 13) == "media_player.") {
+              if (!dd.empty()) dd += '\n';
+              dd += t;
+              ESP_LOGI("settings", "  opt[%d]='%s'%s", idx, t.c_str(),
+                       t == cur ? " ACTIVE" : "");
+              if (t == cur) sel = idx;
+              idx++;
+            }
+            if (cm == std::string::npos) break;
+            p = cm + 1;
+          }
+          if (idx == 0) { ESP_LOGW("settings", "No valid options found"); return; }
+          ESP_LOGI("settings", "Setting %d options on dropdown", idx);
+          // Store in global so pointer stays valid after lambda returns.
+          // Use set_options_static — avoids lv_mem_free of the flash-backed
+          // initial pointer that ESPHome set at init time (crashes heap_caps_free).
+          id(mediaplayer_dd_str) = dd;
+          id(dropdown_updating) = true;
+          lv_dropdown_set_options_static((lv_obj_t*)id(mediaplayer_dropdown),
+                                          id(mediaplayer_dd_str).c_str());
+          lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), sel);
+          // lv_obj_get_disp returns null inside scrollable containers in ESPHome pages,
+          // so lv_dropdown_set_selected can't repaint the button label automatically.
+          // Manually get the button's label child (child 0) and set its text directly.
+          lv_obj_t* dd_btn = (lv_obj_t*)id(mediaplayer_dropdown);
+          lv_obj_t* dd_label = lv_obj_get_child(dd_btn, 0);
+          if (dd_label != nullptr) {
+            lv_label_set_text(dd_label, cur.c_str());
+            ESP_LOGI("settings", "Button label set to '%s'", cur.c_str());
+          } else {
+            ESP_LOGW("settings", "Could not find dropdown button label child");
+          }
+          id(dropdown_updating) = false;
+          ESP_LOGI("settings", "Dropdown rebuilt: %d opts, sel=%d", idx, sel);
+
 
 interval:
   - interval: 30s
