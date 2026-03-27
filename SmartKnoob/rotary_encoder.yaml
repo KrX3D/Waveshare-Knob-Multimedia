@@ -68,5 +68,5 @@ sensor:
               - homeassistant.action:
                   action: media_player.volume_set
                   data:
-                    entity_id: $mediaplayer
+                    entity_id: !lambda 'return id(active_mediaplayer);'
                     volume_level: !lambda 'return id(current_volume);'

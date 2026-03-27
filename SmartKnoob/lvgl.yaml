@@ -202,7 +202,7 @@ lvgl:
                 - homeassistant.action:
                     action: media_player.media_play_pause
                     data:
-                      entity_id: $mediaplayer
+                      entity_id: !lambda 'return id(active_mediaplayer);'
       on_swipe_left:
         then:
           - lvgl.page.show:
@@ -281,7 +281,7 @@ lvgl:
           - homeassistant.action:
               action: media_player.media_play_pause
               data:
-                entity_id: $mediaplayer
+                entity_id: !lambda 'return id(active_mediaplayer);'
       on_swipe_left:
         then:
           - lvgl.page.show:
@@ -399,7 +399,7 @@ lvgl:
                 - homeassistant.action:
                     action: media_player.volume_set
                     data:
-                      entity_id: $mediaplayer
+                      entity_id: !lambda 'return id(active_mediaplayer);'
                       volume_level: !lambda 'return float(x) / 100.0;'
 
         - obj:
@@ -428,7 +428,7 @@ lvgl:
                       - homeassistant.action:
                           action: media_player.media_previous_track
                           data:
-                            entity_id: "${mediaplayer}"
+                            entity_id: !lambda 'return id(active_mediaplayer);'
                   widgets:
                     - label:
                         align: CENTER
@@ -451,7 +451,7 @@ lvgl:
                       - homeassistant.action:
                           action: media_player.media_play_pause
                           data:
-                            entity_id: $mediaplayer
+                            entity_id: !lambda 'return id(active_mediaplayer);'
                   widgets:
                     - label:
                         id: play_pause_icon
@@ -475,7 +475,7 @@ lvgl:
                       - homeassistant.action:
                           action: media_player.media_next_track
                           data:
-                            entity_id: "${mediaplayer}"
+                            entity_id: !lambda 'return id(active_mediaplayer);'
                   widgets:
                     - label:
                         align: CENTER
