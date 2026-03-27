@@ -25,11 +25,7 @@ font:
     glyphs: "²"
     extras:
       - file: "WaveShare_ESP32_S3/fonts/Jua-Regular.ttf"
-        glyphs: [
-          "\U0000C774",
-          "\U0000B8E8",
-          "\U0000B9C8",        
-        ]
+        glyphs: ["\U0000C774", "\U0000B8E8", "\U0000B9C8"]
 
   - file: "WaveShare_ESP32_S3/fonts/Nunito-SemiBold.ttf"
     id: nunito_20
@@ -44,42 +40,22 @@ font:
     id: icons_28
     size: 28
     bpp: 4
-    glyphs: [
-      "\U0000e902", # exit
-      "\U0000e927", # room_plan
-    ]
+    glyphs: ["\U0000e902", "\U0000e927"]
 
   - file: "WaveShare_ESP32_S3/fonts/icons_v2.ttf"
     id: icons_38
     size: 38
     bpp: 4
-    glyphs: [
-      "\U0000e909", # power
-      "\U0000e90c", # back step
-      "\U0000e90d", # forward step
-      "\U0000e912", # repeat_all
-      "\U0000e913", # repeat_off
-      "\U0000e914", # repeat_one
-      "\U0000e90a", # play
-      "\U0000e90b", # pause
-      "\U0000e91c", # stop
-      "\U0000e923", # locate
-      "\U0000e924", # docked
-    ]
+    glyphs: ["\U0000e909", "\U0000e90c", "\U0000e90d", "\U0000e912",
+             "\U0000e913", "\U0000e914", "\U0000e90a", "\U0000e90b",
+             "\U0000e91c", "\U0000e923", "\U0000e924"]
 
   - file: "WaveShare_ESP32_S3/fonts/icons_v2.ttf"
     id: icons_48
     size: 48
     bpp: 4
-    glyphs: [
-      "\U0000e90a", # play
-      "\U0000e90b", # pause
-      "\U0000e91f", # arrow_up
-      "\U0000e920", # arrow_down
-      "\U0000e91c", # stop
-      "\U0000e923", # locate
-      "\U0000e924", # docked
-    ]
+    glyphs: ["\U0000e90a", "\U0000e90b", "\U0000e91f", "\U0000e920",
+             "\U0000e91c", "\U0000e923", "\U0000e924"]
 
 image:
   - file: "SmartKnob/bg.png"
@@ -103,14 +79,10 @@ online_image:
     transparency: alpha_channel
     update_interval: never
     on_download_finished:
-      - lambda: |-
-          ESP_LOGI("cover", "Cover image downloaded successfully");
       - lvgl.image.update:
           id: album_cover_image
           src: media_image_jpeg
     on_error:
-      - lambda: |-
-          ESP_LOGW("cover", "Failed to download cover image (timeout or connection error), using placeholder");
       - lvgl.image.update:
           id: album_cover_image
           src: album_placeholder
@@ -152,14 +124,14 @@ api:
     - homeassistant.service:
         service: homeassistant.update_entity
         data:
-          entity_id: $mediaplayer
+          entity_id: !lambda 'return id(active_mediaplayer);'
     - delay: 1s
     - script.execute: refresh_media_data
 
 text_sensor:
   - platform: homeassistant
     id: media_player_state
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     on_value:
       - if:
           condition:
@@ -177,17 +149,16 @@ text_sensor:
 
   - platform: homeassistant
     id: media_player_cover
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     attribute: entity_picture
     on_value:
       - lambda: |-
-          ESP_LOGI("cover", "New cover URL received: %s", x.c_str());
           id(pending_cover_url) = x;
       - script.execute: update_cover_script
 
   - platform: homeassistant
     id: media_player_title_sensor
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     attribute: media_title
     on_value:
       - lvgl.label.update:
@@ -226,7 +197,7 @@ text_sensor:
 
   - platform: homeassistant
     id: media_player_artist_sensor
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     attribute: media_artist
     on_value:
       - delay: 1s
@@ -257,7 +228,6 @@ binary_sensor:
             condition:
               lambda: 'return id(api_ready);'
             then:
-              - lambda: 'ESP_LOGI("media", "Switching to media player page");'
               - lvgl.page.show: media_player_page
     on_release:
       then:
@@ -266,8 +236,6 @@ binary_sensor:
               lambda: 'return id(api_ready);'
             then:
               - delay: 1s
-              - lambda: 'ESP_LOGI("media", "Switching to time page");'
-              #- lvgl.page.show: time_page
 
 sensor:
   # Single volume sensor — removed duplicate media_player_volume_level.
@@ -301,7 +269,7 @@ sensor:
 
   - platform: homeassistant
     id: media_player_media_duration
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     attribute: media_duration
     on_value:
       then:
@@ -311,7 +279,7 @@ sensor:
 
   - platform: homeassistant
     id: media_position
-    entity_id: "${mediaplayer}"
+    entity_id: $mediaplayer
     attribute: media_position
     on_value:
       then:
@@ -333,7 +301,7 @@ script:
       - homeassistant.service:
           service: media_player.media_seek
           data:
-            entity_id: "${mediaplayer}"
+            entity_id: !lambda 'return id(active_mediaplayer);'
             seek_position: !lambda 'return std::to_string(int(id(slider_position)));'
       - delay: 2s
       - lambda: 'id(duration_slider_user_interaction) = false;'
@@ -342,12 +310,7 @@ script:
     mode: restart
     then:
       - lambda: |-
-          std::string full_url = "${homeassistant_thumbnail_url}";
-          
-          ESP_LOGI("cover", "Triggering cover image download from: %s", full_url.c_str());
-          
-          // Set the URL
-          id(media_image_jpeg)->set_url(full_url);
+          id(media_image_jpeg)->set_url("${homeassistant_thumbnail_url}");
       - delay: 100ms
       - lambda: 'id(media_image_jpeg)->update();'
 
@@ -357,15 +320,13 @@ script:
       - homeassistant.service:
           service: homeassistant.update_entity
           data:
-            entity_id: $mediaplayer
+            entity_id: !lambda 'return id(active_mediaplayer);'
       - if:
           condition:
             lambda: 'return id(media_player_volume).has_state() && id(media_player_volume).state > 0;'
           then:
             - lambda: |-
-                float vol = id(media_player_volume).state;
-                ESP_LOGI("media", "Updating volume display: %.2f", vol);
-                id(current_volume) = vol;
+                id(current_volume) = id(media_player_volume).state;
             - lvgl.arc.update:
                 id: volume_control_widget
                 value: !lambda 'return id(current_volume) * 100;'
@@ -379,11 +340,10 @@ script:
             - lambda: |-
                 float v = std::min(id(current_volume) + 0.05f, 1.0f);
                 id(current_volume) = v;
-                ESP_LOGI("volume", "Volume up to: %.2f", v);
             - homeassistant.action:
                 action: media_player.volume_set
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'
                   volume_level: !lambda 'return id(current_volume);'
 
   - id: volume_down
@@ -395,11 +355,10 @@ script:
             - lambda: |-
                 float v = std::max(id(current_volume) - 0.05f, 0.0f);
                 id(current_volume) = v;
-                ESP_LOGI("volume", "Volume down to: %.2f", v);
             - homeassistant.action:
                 action: media_player.volume_set
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'
                   volume_level: !lambda 'return id(current_volume);'
 
   - id: media_play_pause
@@ -411,7 +370,7 @@ script:
             - homeassistant.action:
                 action: media_player.media_play_pause
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'
 
   - id: media_next
     then:
@@ -422,7 +381,7 @@ script:
             - homeassistant.action:
                 action: media_player.media_next_track
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'
 
   - id: media_previous
     then:
@@ -433,7 +392,7 @@ script:
             - homeassistant.action:
                 action: media_player.media_previous_track
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'
 
 interval:
   - interval: 30s
@@ -445,4 +404,4 @@ interval:
             - homeassistant.service:
                 service: homeassistant.update_entity
                 data:
-                  entity_id: $mediaplayer
+                  entity_id: !lambda 'return id(active_mediaplayer);'

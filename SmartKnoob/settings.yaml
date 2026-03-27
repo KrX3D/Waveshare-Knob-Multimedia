@@ -6,6 +6,13 @@ globals:
     type: bool
     initial_value: 'false'
 
+  # Runtime-switchable media player entity ID
+  # restore_value: true so the last selection survives reboots
+  - id: active_mediaplayer
+    type: std::string
+    restore_value: true
+    initial_value: '"${mediaplayer}"'
+
 lvgl:
   pages:
     - id: settings_page
@@ -15,6 +22,9 @@ lvgl:
           - lambda: |-
               // Disable elastic overscroll so content can't scroll beyond top/bottom
               lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_ELASTIC);
+              lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_MOMENTUM);
+              // Hard clamp: scroll starts at top
+              lv_obj_scroll_to_y(id(settings_scroll), 0, LV_ANIM_OFF);
               // Sync timeout slider to actual current value on page open
               int cur = (int)id(display_timeout).state;
               lv_slider_set_value(id(timeout_slider), cur, LV_ANIM_OFF);
@@ -295,7 +305,7 @@ lvgl:
                     - button:
                         id: antiburn_btn
                         align: TOP_MID
-                        y: 418
+                        y: 422
                         width: 180
                         height: 36
                         bg_color: 0x1a3a1a
@@ -332,7 +342,7 @@ lvgl:
                     - label:
                         id: lbl_sd_type
                         align: TOP_LEFT
-                        y: 496
+                        y: 502
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "Type: –"
@@ -397,7 +407,7 @@ lvgl:
                     - label:
                         id: lbl_heap
                         align: TOP_LEFT
-                        y: 654
+                        y: 660
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "Heap: –"
@@ -463,11 +473,20 @@ lvgl:
                         options:
                           - "None"
                           - "krx_amd_pc"
-                          - "elitebook_g3_3"
+                          - "elitebook_g3"
                           - "32_smart_monitor_m5"
                           - "krx_samsung_tv"
                         on_value:
                           then:
+                            - lambda: |-
+                                char buf[64];
+                                lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
+                                                              buf, sizeof(buf));
+                                std::string opt(buf);
+                                id(active_mediaplayer) = opt;
+                                lv_label_set_text_fmt(id(lbl_mediaplayer_current),
+                                                      "Active: %s", opt.c_str());
+                                ESP_LOGI("settings", "Media player changed to: %s", opt.c_str());
                             - homeassistant.action:
                                 action: input_select.select_option
                                 data:
@@ -476,9 +495,7 @@ lvgl:
                                     char buf[64];
                                     lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
                                                                   buf, sizeof(buf));
-                                    std::string opt(buf);
-                                    if (opt == "None") return std::string("None");
-                                    return std::string("media_player.") + opt;
+                                    return std::string(buf);
 
 # ── Sensors populating settings labels ─────────────────────────────────────
 text_sensor:
@@ -505,8 +522,13 @@ text_sensor:
         then:
           # Guard against 0.0.0.0 which fires before DHCP completes
           - lambda: |-
-              if (!x.empty() && x != "0.0.0.0")
-                lv_label_set_text_fmt(id(lbl_wifi_dns), "DNS: %s", x.c_str());
+              // Only update if real IP and label still shows placeholder
+              if (!x.empty() && x != "0.0.0.0") {
+                // Check if we already have a good DNS (don't overwrite with backup 0.0.0.0)
+                const char* cur = lv_label_get_text(id(lbl_wifi_dns));
+                if (cur == nullptr || strncmp(cur, "DNS: -", 6) == 0)
+                  lv_label_set_text_fmt(id(lbl_wifi_dns), "DNS: %s", x.c_str());
+              }
 
   - platform: version
     id: esphome_version_sensor
@@ -530,16 +552,15 @@ text_sensor:
             // Update the "Active:" label
             lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
             // Sync dropdown selection
-            // Map full entity ID back to short name for dropdown index
-            std::string short_name = x;
-            const std::string prefix = "media_player.";
-            if (short_name.substr(0, prefix.size()) == prefix)
-              short_name = short_name.substr(prefix.size());
-            // Find matching option index
-            const char* options[] = {"None","krx_amd_pc","elitebook_g3_3",
-                                     "32_smart_monitor_m5","krx_samsung_tv"};
+            // Update global active_mediaplayer
+            id(active_mediaplayer) = x;
+            // Find matching option in dropdown (full entity IDs)
+            const char* options[] = {"None","media_player.krx_amd_pc",
+                                     "media_player.elitebook_g3",
+                                     "media_player.32_smart_monitor_m5",
+                                     "media_player.krx_samsung_tv"};
             for (int i = 0; i < 5; i++) {
-              if (short_name == options[i]) {
+              if (x == options[i]) {
                 lv_dropdown_set_selected((lv_obj_t*)id(mediaplayer_dropdown), i);
                 break;
               }
