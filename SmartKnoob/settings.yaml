@@ -473,19 +473,24 @@ lvgl:
                         options:
                           - "None"
                           - "krx_amd_pc"
-                          - "elitebook_g3_3"
+                          - "elitebook_g3"
                           - "32_smart_monitor_m5"
                           - "krx_samsung_tv"
                         on_value:
                           then:
                             - lambda: |-
-                                char buf[64];
-                                lv_dropdown_get_selected_str((lv_obj_t*)id(mediaplayer_dropdown),
-                                                              buf, sizeof(buf));
-                                std::string opt(buf);
-                                // Reconstruct full entity_id
-                                std::string full = (opt == "None") ? "None"
-                                                   : std::string("media_player.") + opt;
+                                // x is the selected index (0-based)
+                                // Map index directly to full entity_id
+                                const char* options[] = {
+                                  "None",
+                                  "media_player.krx_amd_pc",
+                                  "media_player.elitebook_g3",
+                                  "media_player.32_smart_monitor_m5",
+                                  "media_player.krx_samsung_tv"
+                                };
+                                int idx = (int)x;
+                                if (idx < 0 || idx > 4) idx = 0;
+                                std::string full(options[idx]);
                                 id(active_mediaplayer) = full;
                                 lv_label_set_text_fmt(id(lbl_mediaplayer_current),
                                                       "Active: %s", full.c_str());
@@ -494,8 +499,7 @@ lvgl:
                                 action: input_select.select_option
                                 data:
                                   entity_id: input_select.media_player_thumbnail_source
-                                  option: !lambda |-
-                                    return id(active_mediaplayer);
+                                  option: !lambda 'return id(active_mediaplayer);'
 
 # ── Sensors populating settings labels ─────────────────────────────────────
 text_sensor:
