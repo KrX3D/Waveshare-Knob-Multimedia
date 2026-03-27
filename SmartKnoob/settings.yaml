@@ -13,6 +13,8 @@ lvgl:
         then:
           - lambda: 'id(active_page_id) = 2;'
           - lambda: |-
+              // Disable elastic overscroll so content can't scroll beyond top/bottom
+              lv_obj_clear_flag(id(settings_scroll), LV_OBJ_FLAG_SCROLL_ELASTIC);
               // Sync timeout slider to actual current value on page open
               int cur = (int)id(display_timeout).state;
               lv_slider_set_value(id(timeout_slider), cur, LV_ANIM_OFF);
@@ -104,7 +106,7 @@ lvgl:
                     - label:
                         id: lbl_wifi_ssid
                         align: TOP_LEFT
-                        y: 28
+                        y: 34
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         long_mode: DOT
@@ -114,7 +116,7 @@ lvgl:
                     - label:
                         id: lbl_wifi_ip
                         align: TOP_LEFT
-                        y: 48
+                        y: 54
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "IP: –"
@@ -122,7 +124,7 @@ lvgl:
                     - label:
                         id: lbl_wifi_gw
                         align: TOP_LEFT
-                        y: 68
+                        y: 74
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "GW: –"
@@ -130,7 +132,7 @@ lvgl:
                     - label:
                         id: lbl_wifi_dns
                         align: TOP_LEFT
-                        y: 88
+                        y: 94
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "DNS: –"
@@ -138,7 +140,7 @@ lvgl:
                     - label:
                         id: lbl_wifi_db
                         align: TOP_LEFT
-                        y: 108
+                        y: 114
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "Signal: –"
@@ -205,7 +207,7 @@ lvgl:
                     - label:
                         id: lbl_haptic_val
                         align: TOP_MID
-                        y: 260
+                        y: 264
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "Strength: 127"
@@ -250,7 +252,7 @@ lvgl:
                     - label:
                         id: lbl_timeout_val
                         align: TOP_MID
-                        y: 338
+                        y: 342
                         text_font: roboto_small
                         text_color: 0xCCCCCC
                         text: "Timeout: –s"
@@ -449,6 +451,7 @@ text_sensor:
       internal: true
       on_value:
         then:
+          # Guard against 0.0.0.0 which fires before DHCP completes
           - lambda: |-
               if (!x.empty() && x != "0.0.0.0")
                 lv_label_set_text_fmt(id(lbl_wifi_dns), "DNS: %s", x.c_str());
@@ -458,12 +461,37 @@ text_sensor:
     internal: true
     on_value:
       then:
-        # Only show version number, not the long config hash
         - lambda: |-
             std::string ver = x;
-            auto pos = ver.find(" (");   // trim everything from " (config hash..." onward
+            auto pos = ver.find(" (");
             if (pos != std::string::npos) ver = ver.substr(0, pos);
             lv_label_set_text_fmt(id(lbl_esphome_ver), "ESPHome: %s", ver.c_str());
+
+  # Sync current media player selection from HA input_select
+  - platform: homeassistant
+    id: mediaplayer_select_state
+    entity_id: input_select.media_player_thumbnail_source
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            // Update the "Active:" label
+            lv_label_set_text_fmt(id(lbl_mediaplayer_current), "Active: %s", x.c_str());
+            // Sync dropdown selection
+            // Map full entity ID back to short name for dropdown index
+            std::string short_name = x;
+            const std::string prefix = "media_player.";
+            if (short_name.substr(0, prefix.size()) == prefix)
+              short_name = short_name.substr(prefix.size());
+            // Find matching option index
+            const char* options[] = {"None","krx_amd_pc","elitebook_g3_3",
+                                     "32_smart_monitor_m5","krx_samsung_tv"};
+            for (int i = 0; i < 5; i++) {
+              if (short_name == options[i]) {
+                lv_dropdown_set_selected(id(mediaplayer_dropdown), i);
+                break;
+              }
+            }
 
   # SD card text sensors — wired from sd_card.yaml IDs
   - platform: template
